@@ -34,14 +34,19 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 .msg{padding:40px 20px;text-align:center;color:var(--mu)}
 .msg b{display:block;color:var(--tx);margin-bottom:4px;font-size:16px}
 .hint{color:var(--mu);font-size:13px;margin-top:12px;text-align:center}
-#modal{position:fixed;inset:0;background:rgba(5,10,16,.72);display:none;z-index:20;padding:3vh 3vw}
+#modal{position:fixed;inset:0;background:#0a1018;display:none;z-index:20}
 #modal.on{display:flex}
-.box{margin:auto;background:var(--panel);border-radius:var(--r);width:100%;max-width:1000px;height:100%;max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
-.bar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd)}
+.box{background:var(--panel);width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--bd)}
+.tools{display:flex;gap:6px;align-items:center}
+.tools[hidden]{display:none}
 .bar .nm{font-weight:600}
 .x{border:0;background:var(--bg);color:var(--tx);width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;flex:none}
 .view{flex:1;min-height:0;overflow:auto;display:flex;align-items:center;justify-content:center;background:var(--bg)}
-.view img,.view video{max-width:100%;max-height:100%}
+.view{position:relative}
+.view.img{overflow:hidden;background:#05090e}
+.view img{max-width:100%;max-height:100%;transform-origin:center;cursor:grab;touch-action:none;user-select:none;-webkit-user-drag:none}
+.view video{width:100%;height:100%;object-fit:contain;background:#000}
 .view iframe{width:100%;height:100%;border:0;background:#fff}
 .view pre{margin:0;padding:16px;width:100%;height:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;align-self:flex-start}
 .view audio{width:min(480px,90%)}
@@ -63,7 +68,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 </main>
 <div id="modal" role="dialog" aria-modal="true">
   <div class="box">
-    <div class="bar"><span class="nm" id="mname"></span><button class="dl" id="mdl">Tải về</button><button class="x" id="mx" aria-label="Đóng">✕</button></div>
+    <div class="bar"><span class="nm" id="mname"></span><span class="tools" id="zt" hidden><button class="x" id="zout" title="Thu nhỏ" aria-label="Thu nhỏ">−</button><button class="x" id="zin" title="Phóng to" aria-label="Phóng to">+</button><button class="dl" id="zfit">Vừa khung</button><button class="dl" id="zfull">Cỡ gốc</button></span><button class="x" id="mfs" title="Toàn màn hình" aria-label="Toàn màn hình">⛶</button><button class="dl" id="mdl">Tải về</button><button class="x" id="mx" aria-label="Đóng">✕</button></div>
     <div class="view" id="view"></div>
   </div>
 </div>
@@ -90,9 +95,10 @@ const TYPES = {
   video:["mp4","webm","mov","m4v","ogv"],
   audio:["mp3","wav","ogg","m4a","flac","aac"],
   pdf:["pdf"],
-  text:["txt","md","json","csv","log","css","xml","yml","yaml","py","cpp","c","h","java","cs","ini","sql"]
+  office:["doc","docx","xls","xlsx","ppt","pptx"],
+  text:["txt","md","json","csv","log","css","xml","yml","yaml","py","cpp","c","h","java","cs","ini","sql","js","ts","jsx","tsx","go","rs","rb","kt","swift","toml","tex","srt","vtt","bat","sh"]
 };
-const ICON = {image:"🖼️",video:"🎬",audio:"🎵",pdf:"📕",text:"📄",other:"📦",dir:"📁"};
+const ICON = {image:"🖼️",video:"🎬",audio:"🎵",pdf:"📕",office:"📊",text:"📄",other:"📦",dir:"📁"};
 const ext = n => (n.split(".").pop() || "").toLowerCase();
 const kind = n => Object.keys(TYPES).find(k => TYPES[k].includes(ext(n))) || "other";
 const fmt = b => b < 1024 ? b + " B" : b < 1048576 ? (b/1024).toFixed(1) + " KB" : (b/1048576).toFixed(1) + " MB";
@@ -156,7 +162,7 @@ $("list").addEventListener("click", e => {
   const el = e.target.closest(".item"); if (!el) return;
   const f = items.find(x => x.name === el.dataset.n);
   if (e.target.closest("[data-d]")) { e.stopPropagation(); return download(f, e.target.closest("[data-d]")); }
-  open(f);
+  openFile(f);
 });
 $("list").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("item")) e.target.click(); });
 $("q").addEventListener("input", render);
@@ -175,34 +181,85 @@ async function download(f, btn) {
   if (btn) btn.textContent = old;
 }
 
-let cur = null, blobUrl = null;
-async function open(f) {
+let cur = null, blobUrl = null, Z = null;
+const OFFICE = u => "https://view.officeapps.live.com/op/embed.aspx?src=" + encodeURIComponent(u);
+function fail(v) {
+  v.className = "view"; $("zt").hidden = true;
+  v.innerHTML = '<div class="msg"><b>Không xem trước được tệp này</b>Bấm “Tải về” để lưu vào máy.</div>';
+}
+async function openFile(f) {
   if (f.type === "dir") { location.hash = "#/" + enc([sub(), f.name].filter(Boolean).join("/")); return; }
-  cur = f; const k = kind(f.name), v = $("view");
-  $("mname").textContent = f.name; v.innerHTML = '<div class="msg">Đang mở…</div>';
+  cur = f; Z = null; const k = kind(f.name), v = $("view");
+  $("mname").textContent = f.name; $("zt").hidden = true; v.className = "view";
+  v.innerHTML = '<div class="msg">Đang mở…</div>';
   $("modal").classList.add("on");
   try {
-    if (k === "image") v.innerHTML = `<img src="${f.download_url}" alt="${esc(f.name)}">`;
-    else if (k === "video") v.innerHTML = `<video src="${f.download_url}" controls autoplay></video>`;
-    else if (k === "audio") v.innerHTML = `<audio src="${f.download_url}" controls autoplay></audio>`;
+    if (k === "image") return showImage(f, v);
+    if (k === "video") { v.innerHTML = `<video src="${f.download_url}" controls autoplay playsinline></video>`; v.firstChild.onerror = () => fail(v); }
+    else if (k === "audio") { v.innerHTML = `<audio src="${f.download_url}" controls autoplay></audio>`; v.firstChild.onerror = () => fail(v); }
     else if (k === "pdf") {
       const b = await (await fetch(f.download_url)).blob();
       blobUrl = URL.createObjectURL(new Blob([b], { type: "application/pdf" }));
       v.innerHTML = `<iframe src="${blobUrl}" title="${esc(f.name)}"></iframe>`;
-    } else if (k === "text") {
+    } else if (k === "office") v.innerHTML = `<iframe src="${OFFICE(f.download_url)}" title="${esc(f.name)}"></iframe>`;
+    else if (k === "text") {
       if (f.size > 1048576) throw 0;
       v.innerHTML = `<pre>${esc(await (await fetch(f.download_url)).text())}</pre>`;
-    } else v.innerHTML = '<div class="msg"><b>Không xem trước được loại tệp này</b>Bấm “Tải về” để lưu vào máy.</div>';
-  } catch (e) { v.innerHTML = '<div class="msg"><b>Không mở được tệp</b>Bấm “Tải về” để lưu vào máy.</div>'; }
+    } else fail(v);
+  } catch (e) { fail(v); }
 }
-function close() {
-  $("modal").classList.remove("on"); $("view").innerHTML = "";
+
+/* Ảnh: lăn chuột / chụm hai ngón để phóng to, kéo để di chuyển, bấm đúp để phóng 3 lần */
+function showImage(f, v) {
+  v.className = "view img";
+  v.innerHTML = `<img alt="${esc(f.name)}" draggable="false">`;
+  const im = v.firstChild; Z = { s: 1, x: 0, y: 0, im };
+  im.onerror = () => fail(v);
+  im.onload = () => { $("zt").hidden = false; };
+  im.src = f.download_url;
+}
+const apply = () => { if (Z) Z.im.style.transform = `translate(${Z.x}px,${Z.y}px) scale(${Z.s})`; };
+function zoomAt(ns, cx, cy) {
+  ns = Math.min(30, Math.max(0.2, ns));
+  Z.x = cx - (cx - Z.x) * ns / Z.s; Z.y = cy - (cy - Z.y) * ns / Z.s; Z.s = ns; apply();
+}
+const rel = (x, y) => { const r = $("view").getBoundingClientRect(); return [x - r.left - r.width / 2, y - r.top - r.height / 2]; };
+const pts = new Map(); let pinch = 0;
+$("view").addEventListener("wheel", e => { if (!Z) return; e.preventDefault(); const [cx, cy] = rel(e.clientX, e.clientY); zoomAt(Z.s * (e.deltaY < 0 ? 1.18 : 1 / 1.18), cx, cy); }, { passive: false });
+$("view").addEventListener("pointerdown", e => { if (!Z) return; pts.set(e.pointerId, [e.clientX, e.clientY]); $("view").setPointerCapture(e.pointerId); pinch = 0; });
+$("view").addEventListener("pointermove", e => {
+  if (!Z || !pts.has(e.pointerId)) return;
+  const p = pts.get(e.pointerId);
+  if (pts.size === 1) { Z.x += e.clientX - p[0]; Z.y += e.clientY - p[1]; apply(); }
+  pts.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pts.size === 2) {
+    const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) { const [cx, cy] = rel((a[0] + b[0]) / 2, (a[1] + b[1]) / 2); zoomAt(Z.s * d / pinch, cx, cy); }
+    pinch = d;
+  }
+});
+const endPt = e => { pts.delete(e.pointerId); pinch = 0; };
+$("view").addEventListener("pointerup", endPt); $("view").addEventListener("pointercancel", endPt);
+$("view").addEventListener("dblclick", e => {
+  if (!Z) return;
+  if (Z.s > 1.05) { Z.s = 1; Z.x = Z.y = 0; apply(); } else { const [cx, cy] = rel(e.clientX, e.clientY); zoomAt(3, cx, cy); }
+});
+$("zin").onclick = () => Z && zoomAt(Z.s * 1.4, 0, 0);
+$("zout").onclick = () => Z && zoomAt(Z.s / 1.4, 0, 0);
+$("zfit").onclick = () => { if (Z) { Z.s = 1; Z.x = Z.y = 0; apply(); } };
+$("zfull").onclick = () => { if (Z) { Z.x = Z.y = 0; Z.s = Z.im.naturalWidth / Z.im.clientWidth; apply(); } };
+
+if (!document.fullscreenEnabled) $("mfs").hidden = true;
+$("mfs").onclick = () => document.fullscreenElement ? document.exitFullscreen() : $("modal").requestFullscreen();
+
+function closeModal() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  $("modal").classList.remove("on"); $("view").innerHTML = ""; Z = null; pts.clear();
   if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
 }
-$("mx").onclick = close;
+$("mx").onclick = closeModal;
 $("mdl").onclick = e => cur && download(cur, e.target);
-$("modal").addEventListener("click", e => { if (e.target.id === "modal") close(); });
-addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+addEventListener("keydown", e => { if (e.key === "Escape" && $("modal").classList.contains("on") && !document.fullscreenElement) closeModal(); });
 
 /* ====== TẢI LÊN ======
    Tên tệp được đổi sang chữ không dấu (a-z, 0-9, . _ -) vì Supabase chỉ chấp nhận ký tự an toàn. */
@@ -239,8 +296,7 @@ async function uploadFiles(files) {
           name = first.replace(/(\.[^.]*)?$/, `_${n}$1`); continue;
         }
         if (r.status === 413) throw new Error(`${f.name}: lớn hơn giới hạn của kho`);
-        if (r.status === 400 || r.status === 401 || r.status === 403) throw new Error("Kho chưa cấp quyền tải lên, hãy chạy đoạn SQL thiết lập.");
-        throw new Error(`Không tải lên được ${f.name}`);
+        throw new Error(`Lỗi ${r.status}: ${j.message || j.error || "không rõ nguyên nhân"}`);
       }
       t.textContent = `Đã tải lên ${name}`; setTimeout(() => t.remove(), 4000); done++;
     } catch (e) { t.textContent = e.message || `Không tải lên được ${f.name}`; }
