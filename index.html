@@ -73,12 +73,27 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 .selbar[hidden]{display:none}
 .selbar label{display:flex;gap:8px;align-items:center;cursor:pointer}
 .selact{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
+.term{padding:0;background:#0a1018;z-index:25}
+.tbox{background:var(--panel);width:100%;height:100%;display:flex;flex-direction:column;overflow:hidden}
+.tbody{flex:1;min-height:0;display:grid;grid-template-columns:1.3fr 1fr}
+@media(max-width:760px){.tbody{grid-template-columns:1fr;grid-template-rows:1.2fr 1fr}.tbox .bar .nm{flex-basis:100%}}
+.ed{display:flex;min-height:0;min-width:0;border-right:1px solid var(--bd)}
+.mono{font:13px/1.55 ui-monospace,Menlo,Consolas,monospace}
+.ed pre{margin:0;padding:12px 8px;text-align:right;color:var(--mu);overflow:hidden;user-select:none;min-width:42px;background:var(--bg)}
+.ed textarea{flex:1;min-width:0;border:0;resize:none;padding:12px;background:var(--panel);color:var(--tx);white-space:pre;overflow:auto;tab-size:4;outline:none}
+.tside{display:flex;flex-direction:column;min-height:0;min-width:0;padding:10px;gap:6px;background:var(--bg)}
+.tlab{font-size:12px;color:var(--mu);font-weight:600}
+#tin{height:84px;flex:none;resize:vertical;border:1px solid var(--bd);border-radius:8px;padding:8px;background:var(--panel);color:var(--tx)}
+.tout{flex:1;min-height:0;margin:0;overflow:auto;background:#0b0f14;color:#d6e2ee;border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-word}
+.tout .e{color:#ff7b72}.tout .o{color:#7ee787}.tout .m{color:#8da0b5}.tout .w{color:#e3b341}
+.ssel{padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
 </style>
 </head>
 <body>
 <header>
   <h1><span>☁️</span><span id="title"></span></h1>
   <div class="search"><input id="q" type="search" placeholder="Tìm tệp trong thư mục này" aria-label="Tìm tệp"></div>
+  <button class="dl" id="tbtn">▶ Chạy code</button>
   <button class="dl" id="nf" hidden>📁 Thư mục mới</button>
   <button class="dl" id="adm">Quản trị</button>
   <button class="up" id="upbtn">Tải lên</button>
@@ -94,7 +109,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 </main>
 <div id="modal" role="dialog" aria-modal="true">
   <div class="box">
-    <div class="bar"><span class="nm" id="mname"></span><span class="tools" id="zt" hidden><button class="x" id="zout" title="Thu nhỏ" aria-label="Thu nhỏ">−</button><button class="x" id="zin" title="Phóng to" aria-label="Phóng to">+</button><button class="dl" id="zfit">Vừa khung</button><button class="dl" id="zfull">Cỡ gốc</button></span><button class="x" id="mfs" title="Toàn màn hình" aria-label="Toàn màn hình">⛶</button><button class="dl" id="mdl">Tải về</button><button class="x" id="mx" aria-label="Đóng">✕</button></div>
+    <div class="bar"><span class="nm" id="mname"></span><span class="tools" id="zt" hidden><button class="x" id="zout" title="Thu nhỏ" aria-label="Thu nhỏ">−</button><button class="x" id="zin" title="Phóng to" aria-label="Phóng to">+</button><button class="dl" id="zfit">Vừa khung</button><button class="dl" id="zfull">Cỡ gốc</button></span><button class="dl" id="mrun" hidden>▶ Chạy code</button><button class="x" id="mfs" title="Toàn màn hình" aria-label="Toàn màn hình">⛶</button><button class="dl" id="mdl">Tải về</button><button class="x" id="mx" aria-label="Đóng">✕</button></div>
     <div class="view" id="view"></div>
   </div>
 </div>
@@ -109,6 +124,28 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
   <h2 id="mvt"></h2><div id="mvl"></div>
   <div class="dbtn"><button class="x" id="mvno">Hủy</button></div>
 </div></div>
+<div id="term" class="ov term" role="dialog" aria-modal="true">
+  <div class="tbox">
+    <div class="bar">
+      <span class="nm">💻 Chạy code C++</span>
+      <select id="cstd" class="ssel" aria-label="Chuẩn C++"><option value="c++11">C++11</option><option value="c++14">C++14</option><option value="c++17" selected>C++17</option><option value="c++20">C++20</option></select>
+      <button class="up" id="trun">▶ Chạy</button>
+      <button class="dl" id="topen">Mở tệp</button>
+      <button class="dl" id="tsave">Tải code về</button>
+      <button class="x" id="tx" aria-label="Đóng">✕</button>
+      <input type="file" id="tfile" accept=".cpp,.cc,.cxx,.c,.h,.hpp,.txt" hidden>
+    </div>
+    <div class="tbody">
+      <div class="ed"><pre id="gut" class="mono" aria-hidden="true">1</pre><textarea id="code" class="mono" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Mã nguồn"></textarea></div>
+      <div class="tside">
+        <label class="tlab" for="tin">Dữ liệu nhập vào (stdin): mỗi lần cin đọc theo thứ tự trong ô này</label>
+        <textarea id="tin" class="mono" spellcheck="false" placeholder="Ví dụ: 3 4"></textarea>
+        <div class="tlab">Kết quả (Ctrl+Enter để chạy)</div>
+        <pre id="tout" class="tout mono"></pre>
+      </div>
+    </div>
+  </div>
+</div>
 <div id="toast" aria-live="polite"></div>
 
 <script>
@@ -133,7 +170,7 @@ const TYPES = {
   audio:["mp3","wav","ogg","m4a","flac","aac"],
   pdf:["pdf"],
   office:["doc","docx","xls","xlsx","ppt","pptx"],
-  text:["txt","md","json","csv","log","css","xml","yml","yaml","py","cpp","c","h","java","cs","ini","sql","js","ts","jsx","tsx","go","rs","rb","kt","swift","toml","tex","srt","vtt","bat","sh"]
+  text:["txt","md","json","csv","log","css","xml","yml","yaml","py","cpp","cc","cxx","hpp","c","h","java","cs","ini","sql","js","ts","jsx","tsx","go","rs","rb","kt","swift","toml","tex","srt","vtt","bat","sh"]
 };
 const ICON = {image:"🖼️",video:"🎬",audio:"🎵",pdf:"📕",office:"📊",text:"📄",other:"📦",dir:"📁"};
 const ext = n => (n.split(".").pop() || "").toLowerCase();
@@ -225,7 +262,8 @@ async function download(f, btn) {
   if (btn) btn.textContent = old;
 }
 
-let cur = null, blobUrl = null, Z = null;
+let cur = null, blobUrl = null, Z = null, curText = "";
+const CODE_EXT = ["cpp","cc","cxx","c","h","hpp"];
 const OFFICE = u => "https://view.officeapps.live.com/op/embed.aspx?src=" + encodeURIComponent(u);
 function fail(v) {
   v.className = "view"; $("zt").hidden = true;
@@ -234,7 +272,7 @@ function fail(v) {
 async function openFile(f) {
   if (f.type === "dir") { location.hash = "#/" + enc([sub(), f.name].filter(Boolean).join("/")); return; }
   cur = f; Z = null; const k = kind(f.name), v = $("view");
-  $("mname").textContent = f.name; $("zt").hidden = true; v.className = "view";
+  $("mname").textContent = f.name; $("zt").hidden = true; $("mrun").hidden = true; v.className = "view";
   v.innerHTML = '<div class="msg">Đang mở…</div>';
   $("modal").classList.add("on");
   try {
@@ -248,7 +286,9 @@ async function openFile(f) {
     } else if (k === "office") v.innerHTML = `<iframe src="${OFFICE(f.download_url)}" title="${esc(f.name)}"></iframe>`;
     else if (k === "text") {
       if (f.size > 1048576) throw 0;
-      v.innerHTML = `<pre>${esc(await (await fetch(f.download_url)).text())}</pre>`;
+      curText = await (await fetch(f.download_url)).text();
+      v.innerHTML = `<pre>${esc(curText)}</pre>`;
+      if (CODE_EXT.includes(ext(f.name))) $("mrun").hidden = false;
     } else fail(v);
   } catch (e) { fail(v); }
 }
@@ -571,6 +611,102 @@ $("list").addEventListener("drop", e => {
 });
 $("crumbs").addEventListener("dragover", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); a.classList.add("over"); } });
 $("crumbs").addEventListener("drop", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); moveMany(dragSet, a.dataset.p); } });
+
+/* ====== CHẠY CODE C++ (giống console của Code::Blocks) ======
+   Mã được gửi tới máy chủ biên dịch miễn phí (Wandbox, dự phòng Judge0) để biên dịch bằng g++ và chạy. */
+const SAMPLE = `#include <iostream>
+using namespace std;
+
+int main() {
+    int a, b;
+    cout << "Nhap a, b: ";
+    cin >> a >> b;
+    cout << "Tong = " << a + b << endl;
+    return 0;
+}
+`;
+const code = $("code"), gut = $("gut"), tout = $("tout");
+try { code.value = localStorage.getItem("kt-code") || SAMPLE; $("tin").value = localStorage.getItem("kt-in") || "3 4"; } catch (e) { code.value = SAMPLE; $("tin").value = "3 4"; }
+function gutter() {
+  const n = code.value.split("\n").length; let h = "";
+  for (let i = 1; i <= n; i++) h += i + "\n";
+  gut.textContent = h; gut.scrollTop = code.scrollTop;
+}
+const keep = () => { try { localStorage.setItem("kt-code", code.value); localStorage.setItem("kt-in", $("tin").value); } catch (e) {} };
+code.addEventListener("input", () => { gutter(); keep(); });
+code.addEventListener("scroll", () => { gut.scrollTop = code.scrollTop; });
+$("tin").addEventListener("input", keep);
+function ins(t) { code.setRangeText(t, code.selectionStart, code.selectionEnd, "end"); code.dispatchEvent(new Event("input")); }
+code.addEventListener("keydown", e => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runCode(); }
+  else if (e.key === "Tab") { e.preventDefault(); ins("    "); }
+  else if (e.key === "Enter") {
+    const v = code.value, st = code.selectionStart, ls = v.lastIndexOf("\n", st - 1) + 1, cut = v.slice(ls, st);
+    e.preventDefault(); ins("\n" + cut.match(/^\s*/)[0] + (/\{\s*$/.test(cut) ? "    " : ""));
+  }
+});
+
+const line = (t, c) => { const sp = document.createElement("span"); sp.className = c; sp.textContent = t.endsWith("\n") ? t : t + "\n"; tout.appendChild(sp); tout.scrollTop = tout.scrollHeight; };
+async function jpost(url, body, ms) {
+  const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), ms || 30000);
+  try {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctl.signal });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return await r.json();
+  } finally { clearTimeout(tm); }
+}
+async function viaWandbox(src, stdin, std) {
+  const j = await jpost("https://wandbox.org/api/compile.json", { compiler: "gcc-head", code: src, stdin, save: false, "compiler-option-raw": `-std=${std}\n-O2\n-Wall` });
+  const cmp = (j.compiler_error || "").trim(), out = j.program_output || "", err = j.program_error || "";
+  const failed = !out && !err && /error/i.test(cmp) && String(j.status) !== "0";
+  return { cmp, failed, out, err, status: j.signal ? `tín hiệu ${j.signal}` : `mã thoát ${j.status || 0}` };
+}
+async function viaJudge0(src, stdin, std) {
+  const j = await jpost("https://ce.judge0.com/submissions?base64_encoded=false&wait=true",
+    { source_code: src, language_id: 54, stdin, compiler_options: `-std=${std.replace("c++20", "c++2a")} -O2 -Wall` });
+  const id = j.status && j.status.id;
+  return { cmp: (j.compile_output || "").trim(), failed: id === 6, out: j.stdout || "", err: j.stderr || "",
+    status: id === 3 ? "mã thoát 0" : (j.status ? j.status.description : "không rõ") };
+}
+
+let running = false;
+async function runCode() {
+  if (running) return;
+  running = true; const b = $("trun"); b.textContent = "⏳ Đang chạy…"; b.disabled = true;
+  tout.textContent = ""; keep();
+  const src = code.value, std = $("cstd").value, stdin = $("tin").value, t0 = performance.now();
+  line(`$ g++ main.cpp -o main -std=${std} -O2 -Wall`, "m");
+  let r = null, svc = "", errs = [];
+  for (const [name, fn] of [["Wandbox", viaWandbox], ["Judge0", viaJudge0]]) {
+    try { r = await fn(src, stdin, std); svc = name; break; }
+    catch (e) { errs.push(`${name}: ${e.name === "AbortError" ? "quá thời gian chờ" : e.message}`); }
+  }
+  if (!r) { line("Không kết nối được máy chủ biên dịch. " + errs.join(" | "), "e"); line("Kiểm tra mạng rồi thử lại sau ít phút.", "m"); }
+  else {
+    if (r.cmp) line(r.cmp, r.failed ? "e" : "w");
+    if (r.failed) line("[Biên dịch thất bại]", "e");
+    else {
+      line("$ ./main", "m");
+      if (r.out) line(r.out, "o");
+      if (r.err) line(r.err, "e");
+      line(`[Kết thúc: ${r.status} | ${((performance.now() - t0) / 1000).toFixed(2)}s | máy chủ ${svc}]`, "m");
+    }
+  }
+  running = false; b.textContent = "▶ Chạy"; b.disabled = false;
+}
+function openTerm() { $("term").classList.add("on"); gutter(); code.focus(); }
+$("tbtn").onclick = openTerm;
+$("tx").onclick = () => $("term").classList.remove("on");
+$("trun").onclick = runCode;
+$("topen").onclick = () => $("tfile").click();
+$("tfile").onchange = async e => { const f = e.target.files[0]; if (f) { code.value = await f.text(); gutter(); keep(); } e.target.value = ""; };
+$("tsave").onclick = () => {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([code.value], { type: "text/plain" })); a.download = "main.cpp";
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+$("mrun").onclick = () => { code.value = curText; gutter(); keep(); closeModal(); openTerm(); };
+addEventListener("keydown", e => { if (e.key === "Escape" && $("term").classList.contains("on")) $("term").classList.remove("on"); });
+gutter();
 
 ui();
 
