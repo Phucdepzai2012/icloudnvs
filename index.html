@@ -76,12 +76,14 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
   <button class="dl" id="nf" hidden>📁 Thư mục mới</button>
   <button class="dl" id="adm">Quản trị</button>
   <button class="up" id="upbtn">Tải lên</button>
+  <button class="dl" id="upfbtn">Tải thư mục</button>
   <input type="file" id="upin" multiple hidden>
+  <input type="file" id="upfin" webkitdirectory multiple hidden>
 </header>
 <main>
   <nav class="crumbs" id="crumbs"></nav>
   <div class="list" id="list"></div>
-  <div class="hint">Kéo thả tệp vào trang để tải lên. Mỗi tệp tối đa 20 MB.</div>
+  <div class="hint">Kéo thả tệp hoặc cả thư mục vào trang để tải lên. Mỗi tệp tối đa 20 MB.</div>
 </main>
 <div id="modal" role="dialog" aria-modal="true">
   <div class="box">
@@ -302,22 +304,30 @@ function safeName(n) {
   return (clean(base) || "tep") + clean(ex);
 }
 
-async function uploadFiles(files) {
-  files = [...files];
-  if (!files.length) return;
+const wrap = fl => [...fl].map(file => ({ file, rel: file.webkitRelativePath || file.name }));
+
+async function uploadFiles(list) {
+  if (!list.length) return;
   if (!CONFIG.supabaseUrl || !CONFIG.anonKey) return toast("Chưa cấu hình Supabase trong CONFIG.");
+  list = list.filter(x => !x.file.name.startsWith(".") && x.file.name !== "Thumbs.db");
+  if (!list.length) return toast("Không có tệp hợp lệ để tải lên");
+  if (list.length > 300) { toast("Mỗi lần chỉ tải tối đa 300 tệp, mình lấy 300 tệp đầu."); list = list.slice(0, 300); }
   await ensure();
+  const base = sub(), total = list.length, skipped = [], failed = [];
   let done = 0;
-  for (const f of files) {
-    if (f.size > MAX) { toast(`${f.name}: lớn hơn 20 MB nên không tải lên được`); continue; }
-    if (BLOCKED.includes(ext(f.name))) { toast(`${f.name}: loại tệp này không được phép tải lên`); continue; }
-    if (!f.size) { toast(`${f.name}: tệp trống`); continue; }
-    const t = toast(`Đang tải lên ${f.name}…`, true);
-    const first = safeName(f.name);
+  const t = toast(`Đang tải lên 0/${total}…`, true);
+  for (let i = 0; i < total; i++) {
+    const { file: f, rel } = list[i];
+    t.textContent = `Đang tải lên ${i + 1}/${total}: ${f.name}`;
+    if (f.size > MAX) { skipped.push(`${f.name} (quá 20 MB)`); continue; }
+    if (BLOCKED.includes(ext(f.name))) { skipped.push(`${f.name} (loại không được phép)`); continue; }
+    if (!f.size) { skipped.push(`${f.name} (trống)`); continue; }
+    const parts = rel.split("/"), first = safeName(parts.pop());
+    const dirPath = [base, ...parts.map(x => clean(x) || "thu_muc")].filter(Boolean).join("/");
     let name = first, n = 0;
     try {
       for (;;) { /* không ghi đè: nếu trùng tên thì thêm _1, _2… */
-        const path = (sub() ? sub() + "/" : "") + name;
+        const path = (dirPath ? dirPath + "/" : "") + name;
         const r = await fetch(`${API}/${CONFIG.bucket}/${enc(path)}`, {
           method: "POST", body: f,
           headers: { ...hdr(), "Content-Type": f.type || "application/octet-stream", "x-upsert": "false", "cache-control": "max-age=3600" }
@@ -329,20 +339,56 @@ async function uploadFiles(files) {
           name = first.replace(/(\.[^.]*)?$/, `_${n}$1`); continue;
         }
         if (r.status === 413) throw new Error(`${f.name}: lớn hơn giới hạn của kho`);
-        throw new Error(`Lỗi ${r.status}: ${j.message || j.error || "không rõ nguyên nhân"}`);
+        throw new Error(`${f.name} - Lỗi ${r.status}: ${j.message || j.error || "không rõ nguyên nhân"}`);
       }
-      t.textContent = `Đã tải lên ${name}`; setTimeout(() => t.remove(), 4000); done++;
-    } catch (e) { t.textContent = e.message || `Không tải lên được ${f.name}`; }
+      done++;
+    } catch (e) {
+      failed.push(e.message || f.name);
+      if (/Lỗi 40[13]/.test(e.message || "")) break;
+    }
   }
+  t.textContent = `Đã tải lên ${done}/${total} tệp`; setTimeout(() => t.remove(), 7000);
+  if (skipped.length) toast(`Bỏ qua ${skipped.length} tệp: ${skipped.slice(0, 3).join(", ")}${skipped.length > 3 ? "…" : ""}`);
+  if (failed.length) toast(`Lỗi ${failed.length} tệp. ${failed[0]}`, true);
   if (done) load();
 }
+
+/* Đọc cả thư mục khi kéo thả (có thư mục con) */
+async function walkAll(entries) {
+  const out = [];
+  const walk = async (en, prefix) => {
+    if (en.isFile) { const file = await new Promise((ok, no) => en.file(ok, no)); out.push({ file, rel: prefix + en.name }); }
+    else if (en.isDirectory) {
+      const rd = en.createReader(); let batch;
+      do { batch = await new Promise((ok, no) => rd.readEntries(ok, no)); for (const c of batch) await walk(c, prefix + en.name + "/"); } while (batch.length);
+    }
+  };
+  for (const en of entries) await walk(en, "");
+  return out;
+}
+function collect(dt) {
+  if (dt.items && dt.items.length && dt.items[0].webkitGetAsEntry) {
+    const entries = [];
+    for (const it of dt.items) if (it.kind === "file") { const en = it.webkitGetAsEntry(); if (en) entries.push(en); }
+    return walkAll(entries);
+  }
+  return Promise.resolve(wrap(dt.files));
+}
 $("upbtn").onclick = () => $("upin").click();
-$("upin").onchange = e => { uploadFiles(e.target.files); e.target.value = ""; };
+$("upin").onchange = e => { uploadFiles(wrap(e.target.files)); e.target.value = ""; };
+$("upfbtn").onclick = () => $("upfin").click();
+$("upfin").onchange = e => { uploadFiles(wrap(e.target.files)); e.target.value = ""; };
 let dragN = 0;
 addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragN++; document.body.classList.add("drag"); } });
 addEventListener("dragleave", () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove("drag"); } });
 addEventListener("dragover", e => e.preventDefault());
-addEventListener("drop", e => { e.preventDefault(); dragN = 0; document.body.classList.remove("drag"); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
+addEventListener("drop", async e => {
+  e.preventDefault(); dragN = 0; document.body.classList.remove("drag");
+  const dt = e.dataTransfer;
+  if (dragF || !dt || (!dt.files.length && !(dt.items && dt.items.length))) return; /* kéo chuyển nội bộ thì bỏ qua */
+  const list = await collect(dt);
+  if (list.length) uploadFiles(list);
+});
 
 /* ====== QUẢN TRỊ: đăng nhập, xóa, tạo thư mục, chuyển tệp ====== */
 const KEY = CONFIG.anonKey, SB = CONFIG.supabaseUrl.replace(/\/$/, "");
