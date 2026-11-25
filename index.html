@@ -28,8 +28,12 @@ main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
 .sz{color:var(--mu);font-size:13px;flex:none}
 .dl{flex:none;border:0;background:var(--ac2);color:var(--ac);border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
 .dl:hover{background:var(--ac);color:#fff}
+.up{border:0;background:var(--ac);color:#fff;border-radius:999px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer}
+.up:hover{filter:brightness(1.1)}
+body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:var(--r)}
 .msg{padding:40px 20px;text-align:center;color:var(--mu)}
 .msg b{display:block;color:var(--tx);margin-bottom:4px;font-size:16px}
+.hint{color:var(--mu);font-size:13px;margin-top:12px;text-align:center}
 #modal{position:fixed;inset:0;background:rgba(5,10,16,.72);display:none;z-index:20;padding:3vh 3vw}
 #modal.on{display:flex}
 .box{margin:auto;background:var(--panel);border-radius:var(--r);width:100%;max-width:1000px;height:100%;max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
@@ -41,19 +45,8 @@ main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
 .view iframe{width:100%;height:100%;border:0;background:#fff}
 .view pre{margin:0;padding:16px;width:100%;height:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;align-self:flex-start}
 .view audio{width:min(480px,90%)}
-.up{border:0;background:var(--ac);color:#fff;border-radius:999px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer}
-.up:hover{filter:brightness(1.1)}
-body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:var(--r)}
 #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;z-index:40;width:min(420px,92vw)}
 #toast div{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
-#tk{position:fixed;inset:0;background:rgba(5,10,16,.72);display:none;z-index:30;padding:3vh 3vw}
-#tk.on{display:flex}
-.tkbox{margin:auto;background:var(--panel);border-radius:var(--r);padding:22px;max-width:440px;width:100%}
-.tkbox h2{margin:0 0 6px;font-size:17px}
-.tkbox p{margin:0 0 12px;color:var(--mu);font-size:13px}
-.tkbox input{width:100%;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit}
-.tkbtn{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
-.tkbtn .x{width:auto;border-radius:999px;padding:0 16px;font-size:14px}
 </style>
 </head>
 <body>
@@ -66,6 +59,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 <main>
   <nav class="crumbs" id="crumbs"></nav>
   <div class="list" id="list"></div>
+  <div class="hint">Kéo thả tệp vào trang để tải lên. Mỗi tệp tối đa 20 MB.</div>
 </main>
 <div id="modal" role="dialog" aria-modal="true">
   <div class="box">
@@ -73,101 +67,88 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
     <div class="view" id="view"></div>
   </div>
 </div>
-
-<div id="tk" role="dialog" aria-modal="true">
-  <div class="tkbox">
-    <h2>Nhập mã để tải lên</h2>
-    <p>Dán mã truy cập GitHub do chủ kho cung cấp. Mã chỉ được lưu trong trình duyệt này.</p>
-    <input id="tkin" type="password" placeholder="github_pat_…" autocomplete="off" aria-label="Mã truy cập">
-    <div class="tkbtn"><button class="x" id="tkno">Hủy</button><button class="dl" id="tkok">Tiếp tục</button></div>
-  </div>
-</div>
 <div id="toast" aria-live="polite"></div>
 
 <script>
 /* ====== CẤU HÌNH ======
-   Nếu đăng lên GitHub Pages (tên.github.io/ten-repo) thì để owner, repo trống: trang tự nhận.
-   folder: thư mục trong repo chứa file để chia sẻ. */
-const CONFIG = { title: "Kho tệp", owner: "", repo: "", branch: "", folder: "files" };
+   Điền 2 giá trị lấy từ Supabase (Project Settings → API):
+   supabaseUrl: Project URL, ví dụ https://abcdxyz.supabase.co
+   anonKey:     khóa "anon public" (khóa này được thiết kế để công khai, dán vào đây là an toàn) */
+const CONFIG = { title: "Kho tệp", supabaseUrl: "", anonKey: "", bucket: "files" };
 
 const $ = id => document.getElementById(id);
 $("title").textContent = CONFIG.title; document.title = CONFIG.title;
-
-let owner = CONFIG.owner, repo = CONFIG.repo;
-if (!owner && location.hostname.endsWith(".github.io")) {
-  owner = location.hostname.split(".")[0];
-  repo = location.pathname.split("/")[1] || location.hostname;
-}
-
+const MAX = 20 * 1048576;
+const BLOCKED = ["html","htm","xhtml","svg","js","mjs","php","exe","msi","bat","cmd","com","scr","ps1","sh","jar","apk","dll","vbs"];
 const TYPES = {
-  image:["jpg","jpeg","png","gif","webp","svg","bmp","avif"],
+  image:["jpg","jpeg","png","gif","webp","bmp","avif"],
   video:["mp4","webm","mov","m4v","ogv"],
   audio:["mp3","wav","ogg","m4a","flac","aac"],
   pdf:["pdf"],
-  text:["txt","md","json","csv","log","js","ts","css","html","xml","yml","yaml","py","cpp","c","h","java","cs","sh","ini","sql"]
+  text:["txt","md","json","csv","log","css","xml","yml","yaml","py","cpp","c","h","java","cs","ini","sql"]
 };
-const MIME = {pdf:"application/pdf"};
 const ICON = {image:"🖼️",video:"🎬",audio:"🎵",pdf:"📕",text:"📄",other:"📦",dir:"📁"};
 const ext = n => (n.split(".").pop() || "").toLowerCase();
 const kind = n => Object.keys(TYPES).find(k => TYPES[k].includes(ext(n))) || "other";
-const fmt = b => b < 1024 ? b + " B" : b < 1048576 ? (b/1024).toFixed(1) + " KB" : b < 1073741824 ? (b/1048576).toFixed(1) + " MB" : (b/1073741824).toFixed(2) + " GB";
-const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const fmt = b => b < 1024 ? b + " B" : b < 1048576 ? (b/1024).toFixed(1) + " KB" : (b/1048576).toFixed(1) + " MB";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const enc = p => p.split("/").map(encodeURIComponent).join("/");
+
+const API = CONFIG.supabaseUrl.replace(/\/$/, "") + "/storage/v1/object";
+const AUTH = { apikey: CONFIG.anonKey, Authorization: "Bearer " + CONFIG.anonKey };
+const pubUrl = p => `${API}/public/${CONFIG.bucket}/${enc(p)}`;
 
 let items = [];
 const sub = () => decodeURIComponent(location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
 
+function toast(t, keep) {
+  const d = document.createElement("div"); d.textContent = t; $("toast").appendChild(d);
+  if (!keep) setTimeout(() => d.remove(), 5000);
+  return d;
+}
+function msg(t, d) { $("list").innerHTML = `<div class="msg"><b>${t}</b>${d}</div>`; }
+
 async function load() {
   const s = sub();
-  const path = [CONFIG.folder, s].filter(Boolean).join("/");
-  renderCrumbs(s);
-  $("q").value = "";
-  if (!owner || !repo) return msg("Chưa nhận ra kho GitHub", "Mở trang qua tên.github.io/ten-repo hoặc điền owner và repo trong phần CONFIG của file.");
+  renderCrumbs(s); $("q").value = "";
+  if (!CONFIG.supabaseUrl || !CONFIG.anonKey) return msg("Chưa cấu hình", "Điền supabaseUrl và anonKey trong phần CONFIG ở đầu file index.html.");
   $("list").innerHTML = '<div class="msg">Đang tải…</div>';
-  const key = "ls:" + path;
   try {
-    let data = null;
-    try { data = JSON.parse(sessionStorage.getItem(key)); } catch (e) {}
-    if (!data) {
-      const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}` + (CONFIG.branch ? `?ref=${CONFIG.branch}` : "");
-      const r = await fetch(url);
-      if (r.status === 404) return msg("Không tìm thấy thư mục", `Tạo thư mục “${CONFIG.folder}” trong repo và đẩy file vào đó.`);
-      if (r.status === 403) return msg("GitHub tạm giới hạn lượt tải", "Đợi vài phút rồi tải lại trang.");
-      if (!r.ok) throw new Error(r.status);
-      data = await r.json();
-      try { sessionStorage.setItem(key, JSON.stringify(data)); } catch (e) {}
-    }
-    items = data.filter(f => f.name !== ".gitkeep" && f.name !== "index.html" || f.type === "dir")
-      .sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1) || a.name.localeCompare(b.name, "vi", {numeric:true}));
+    const r = await fetch(`${API}/list/${CONFIG.bucket}`, {
+      method: "POST", headers: { ...AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ prefix: s, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } })
+    });
+    if (!r.ok) throw 0;
+    items = (await r.json()).filter(f => f.name !== ".emptyFolderPlaceholder").map(f => {
+      const path = (s ? s + "/" : "") + f.name;
+      return { name: f.name, type: f.id ? "file" : "dir", size: (f.metadata && f.metadata.size) || 0, download_url: pubUrl(path) };
+    }).sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1) || a.name.localeCompare(b.name, "vi", { numeric: true }));
     render();
-  } catch (e) { msg("Không tải được danh sách", "Kiểm tra mạng rồi tải lại trang."); }
+  } catch (e) { msg("Không tải được danh sách", "Kiểm tra supabaseUrl, anonKey và đã chạy đoạn SQL cấp quyền chưa."); }
 }
-
-function msg(t, d) { $("list").innerHTML = `<div class="msg"><b>${t}</b>${d}</div>`; }
 
 function renderCrumbs(s) {
   const parts = s ? s.split("/") : [];
   let acc = "", h = `<a href="#/">${esc(CONFIG.title)}</a>`;
-  parts.forEach(p => { acc += (acc ? "/" : "") + p; h += ` › <a href="#/${encodeURIComponent(acc).replace(/%2F/g,"/")}">${esc(p)}</a>`; });
+  parts.forEach(p => { acc += (acc ? "/" : "") + p; h += ` › <a href="#/${enc(acc)}">${esc(p)}</a>`; });
   $("crumbs").innerHTML = h;
 }
 
 function render() {
   const q = $("q").value.trim().toLowerCase();
   const rows = items.filter(f => f.name.toLowerCase().includes(q));
-  if (!rows.length) return msg(q ? "Không có tệp khớp" : "Thư mục trống", q ? "Thử từ khóa khác." : "Đẩy file lên repo để hiện ở đây.");
-  $("list").innerHTML = rows.map((f, i) => {
+  if (!rows.length) return msg(q ? "Không có tệp khớp" : "Chưa có tệp nào", q ? "Thử từ khóa khác." : "Bấm Tải lên hoặc kéo thả tệp vào đây.");
+  $("list").innerHTML = rows.map(f => {
     const dir = f.type === "dir", k = dir ? "dir" : kind(f.name);
     return `<div class="item" tabindex="0" data-n="${esc(f.name)}"><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
-      (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="${esc(f.name)}">Tải về</button>`) + `</div>`;
+      (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="1">Tải về</button>`) + `</div>`;
   }).join("");
 }
 
 $("list").addEventListener("click", e => {
-  const d = e.target.closest("[data-d]");
-  const el = e.target.closest(".item");
-  if (!el) return;
+  const el = e.target.closest(".item"); if (!el) return;
   const f = items.find(x => x.name === el.dataset.n);
-  if (d) { e.stopPropagation(); return download(f, d); }
+  if (e.target.closest("[data-d]")) { e.stopPropagation(); return download(f, e.target.closest("[data-d]")); }
   open(f);
 });
 $("list").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("item")) e.target.click(); });
@@ -189,7 +170,7 @@ async function download(f, btn) {
 
 let cur = null, blobUrl = null;
 async function open(f) {
-  if (f.type === "dir") { location.hash = "#/" + [sub(), f.name].filter(Boolean).map(encodeURIComponent).join("/"); return; }
+  if (f.type === "dir") { location.hash = "#/" + enc([sub(), f.name].filter(Boolean).join("/")); return; }
   cur = f; const k = kind(f.name), v = $("view");
   $("mname").textContent = f.name; v.innerHTML = '<div class="msg">Đang mở…</div>';
   $("modal").classList.add("on");
@@ -199,12 +180,11 @@ async function open(f) {
     else if (k === "audio") v.innerHTML = `<audio src="${f.download_url}" controls autoplay></audio>`;
     else if (k === "pdf") {
       const b = await (await fetch(f.download_url)).blob();
-      blobUrl = URL.createObjectURL(new Blob([b], {type: MIME.pdf}));
+      blobUrl = URL.createObjectURL(new Blob([b], { type: "application/pdf" }));
       v.innerHTML = `<iframe src="${blobUrl}" title="${esc(f.name)}"></iframe>`;
     } else if (k === "text") {
       if (f.size > 1048576) throw 0;
-      const t = await (await fetch(f.download_url)).text();
-      v.innerHTML = `<pre>${esc(t)}</pre>`;
+      v.innerHTML = `<pre>${esc(await (await fetch(f.download_url)).text())}</pre>`;
     } else v.innerHTML = '<div class="msg"><b>Không xem trước được loại tệp này</b>Bấm “Tải về” để lưu vào máy.</div>';
   } catch (e) { v.innerHTML = '<div class="msg"><b>Không mở được tệp</b>Bấm “Tải về” để lưu vào máy.</div>'; }
 }
@@ -217,57 +197,48 @@ $("mdl").onclick = e => cur && download(cur, e.target);
 $("modal").addEventListener("click", e => { if (e.target.id === "modal") close(); });
 addEventListener("keydown", e => { if (e.key === "Escape") close(); });
 
-/* ====== TẢI LÊN ====== */
-const MAX = 25 * 1048576;
-const getTok = () => { try { return localStorage.getItem("gh-token") || ""; } catch (e) { return ""; } };
-const setTok = t => { try { t ? localStorage.setItem("gh-token", t) : localStorage.removeItem("gh-token"); } catch (e) {} };
-function toast(t, keep) {
-  const d = document.createElement("div"); d.textContent = t; $("toast").appendChild(d);
-  if (!keep) setTimeout(() => d.remove(), 5000);
-  return d;
+/* ====== TẢI LÊN ======
+   Tên tệp được đổi sang chữ không dấu (a-z, 0-9, . _ -) vì Supabase chỉ chấp nhận ký tự an toàn. */
+const clean = s => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D").replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+function safeName(n) {
+  const i = n.lastIndexOf(".");
+  const base = i > 0 ? n.slice(0, i) : n, ex = i > 0 ? n.slice(i) : "";
+  return (clean(base) || "tep") + clean(ex);
 }
-let pendingTok = null;
-function askToken() {
-  return new Promise(res => { pendingTok = res; $("tkin").value = ""; $("tk").classList.add("on"); $("tkin").focus(); });
-}
-function endAsk(v) { $("tk").classList.remove("on"); if (pendingTok) pendingTok(v); pendingTok = null; }
-$("tkok").onclick = () => endAsk($("tkin").value.trim());
-$("tkno").onclick = () => endAsk("");
-$("tkin").addEventListener("keydown", e => { if (e.key === "Enter") endAsk($("tkin").value.trim()); });
-
-const b64 = f => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result.split(",")[1]); r.onerror = no; r.readAsDataURL(f); });
-const api = (path, method, body) => fetch(
-  `https://api.github.com/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}` + (CONFIG.branch && !body ? `?ref=${CONFIG.branch}` : ""),
-  { method: method || "GET", body, headers: { Authorization: "Bearer " + getTok(), Accept: "application/vnd.github+json" } });
 
 async function uploadFiles(files) {
-  files = [...files].filter(f => f.size > 0 || f.name);
+  files = [...files];
   if (!files.length) return;
-  if (!owner || !repo) return toast("Chưa nhận ra kho GitHub, hãy điền owner và repo trong CONFIG.");
-  if (!getTok()) { const t = await askToken(); if (!t) return; setTok(t); }
-  const dir = [CONFIG.folder, sub()].filter(Boolean).join("/");
+  if (!CONFIG.supabaseUrl || !CONFIG.anonKey) return toast("Chưa cấu hình Supabase trong CONFIG.");
   let done = 0;
   for (const f of files) {
-    if (f.size > MAX) { toast(`${f.name}: lớn hơn 25 MB nên không tải lên được`); continue; }
+    if (f.size > MAX) { toast(`${f.name}: lớn hơn 20 MB nên không tải lên được`); continue; }
+    if (BLOCKED.includes(ext(f.name))) { toast(`${f.name}: loại tệp này không được phép tải lên`); continue; }
+    if (!f.size) { toast(`${f.name}: tệp trống`); continue; }
     const t = toast(`Đang tải lên ${f.name}…`, true);
+    const first = safeName(f.name);
+    let name = first, n = 0;
     try {
-      let name = f.name, n = 0;
-      for (;;) { /* không ghi đè: nếu trùng tên thì thêm (1), (2)… */
-        const r = await api(dir + "/" + name);
-        if (r.status === 404) break;
-        if (!r.ok) throw r.status;
-        name = f.name.replace(/(\.[^.]*)?$/, ` (${++n})$1`);
+      for (;;) { /* không ghi đè: nếu trùng tên thì thêm _1, _2… */
+        const path = (sub() ? sub() + "/" : "") + name;
+        const r = await fetch(`${API}/${CONFIG.bucket}/${enc(path)}`, {
+          method: "POST", body: f,
+          headers: { ...AUTH, "Content-Type": f.type || "application/octet-stream", "x-upsert": "false", "cache-control": "max-age=3600" }
+        });
+        if (r.ok) break;
+        const j = await r.json().catch(() => ({}));
+        if (j.error === "Duplicate" || String(j.statusCode) === "409" || r.status === 409) {
+          if (++n > 50) throw new Error("Quá nhiều tệp trùng tên");
+          name = first.replace(/(\.[^.]*)?$/, `_${n}$1`); continue;
+        }
+        if (r.status === 413) throw new Error(`${f.name}: lớn hơn giới hạn của kho`);
+        if (r.status === 400 || r.status === 401 || r.status === 403) throw new Error("Kho chưa cấp quyền tải lên, hãy chạy đoạn SQL thiết lập.");
+        throw new Error(`Không tải lên được ${f.name}`);
       }
-      const body = JSON.stringify({ message: "Tải lên " + name, content: await b64(f), ...(CONFIG.branch ? { branch: CONFIG.branch } : {}) });
-      const r = await api(dir + "/" + name, "PUT", body);
-      if (!r.ok) throw r.status;
       t.textContent = `Đã tải lên ${name}`; setTimeout(() => t.remove(), 4000); done++;
-    } catch (e) {
-      if ([401, 403, 404].includes(e)) { setTok(""); t.textContent = "Mã không đúng hoặc không có quyền ghi vào kho này. Hãy bấm Tải lên và nhập lại mã."; break; }
-      t.textContent = `Không tải lên được ${f.name}`;
-    }
+    } catch (e) { t.textContent = e.message || `Không tải lên được ${f.name}`; }
   }
-  if (done) { try { sessionStorage.removeItem("ls:" + dir); } catch (e) {} load(); }
+  if (done) load();
 }
 $("upbtn").onclick = () => $("upin").click();
 $("upin").onchange = e => { uploadFiles(e.target.files); e.target.value = ""; };
