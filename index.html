@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kho tệp</title>
+<style>
+:root{--bg:#eef3f9;--panel:#fff;--tx:#14202e;--mu:#667689;--ac:#1479ff;--ac2:#e6f0ff;--bd:#dbe4ef;--r:14px}
+@media(prefers-color-scheme:dark){:root{--bg:#0d141c;--panel:#16212d;--tx:#e8eef5;--mu:#8da0b5;--ac:#4a9bff;--ac2:#1b2f48;--bd:#243445}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh}
+header{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--bd);padding:12px 20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+h1{font-size:20px;margin:0;font-weight:650;letter-spacing:-.01em;display:flex;gap:8px;align-items:center}
+.search{flex:1;min-width:160px;max-width:420px;margin-left:auto}
+.search input{width:100%;padding:9px 14px;border:1px solid var(--bd);border-radius:999px;background:var(--bg);color:var(--tx);font:inherit}
+.search input:focus,button:focus-visible,.item:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+main{max-width:1000px;margin:0 auto;padding:18px 20px 60px}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center;color:var(--mu);margin-bottom:14px}
+.crumbs a{color:var(--ac);text-decoration:none;padding:2px 6px;border-radius:6px}
+.crumbs a:hover{background:var(--ac2)}
+.list{background:var(--panel);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden}
+.item{display:flex;align-items:center;gap:14px;padding:11px 16px;border-bottom:1px solid var(--bd);cursor:pointer}
+.item:last-child{border-bottom:0}
+.item:hover{background:var(--ac2)}
+.ic{font-size:26px;width:34px;text-align:center;flex:none}
+.nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.sz{color:var(--mu);font-size:13px;flex:none}
+.dl{flex:none;border:0;background:var(--ac2);color:var(--ac);border-radius:999px;padding:6px 14px;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.dl:hover{background:var(--ac);color:#fff}
+.msg{padding:40px 20px;text-align:center;color:var(--mu)}
+.msg b{display:block;color:var(--tx);margin-bottom:4px;font-size:16px}
+#modal{position:fixed;inset:0;background:rgba(5,10,16,.72);display:none;z-index:20;padding:3vh 3vw}
+#modal.on{display:flex}
+.box{margin:auto;background:var(--panel);border-radius:var(--r);width:100%;max-width:1000px;height:100%;max-height:94vh;display:flex;flex-direction:column;overflow:hidden}
+.bar{display:flex;gap:10px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--bd)}
+.bar .nm{font-weight:600}
+.x{border:0;background:var(--bg);color:var(--tx);width:34px;height:34px;border-radius:50%;font-size:18px;cursor:pointer;flex:none}
+.view{flex:1;min-height:0;overflow:auto;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.view img,.view video{max-width:100%;max-height:100%}
+.view iframe{width:100%;height:100%;border:0;background:#fff}
+.view pre{margin:0;padding:16px;width:100%;height:100%;overflow:auto;white-space:pre-wrap;word-break:break-word;font:13px/1.55 ui-monospace,Menlo,Consolas,monospace;align-self:flex-start}
+.view audio{width:min(480px,90%)}
+.up{border:0;background:var(--ac);color:#fff;border-radius:999px;padding:9px 18px;font:inherit;font-weight:600;cursor:pointer}
+.up:hover{filter:brightness(1.1)}
+body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:var(--r)}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;z-index:40;width:min(420px,92vw)}
+#toast div{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+#tk{position:fixed;inset:0;background:rgba(5,10,16,.72);display:none;z-index:30;padding:3vh 3vw}
+#tk.on{display:flex}
+.tkbox{margin:auto;background:var(--panel);border-radius:var(--r);padding:22px;max-width:440px;width:100%}
+.tkbox h2{margin:0 0 6px;font-size:17px}
+.tkbox p{margin:0 0 12px;color:var(--mu);font-size:13px}
+.tkbox input{width:100%;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit}
+.tkbtn{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.tkbtn .x{width:auto;border-radius:999px;padding:0 16px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>☁️</span><span id="title"></span></h1>
+  <div class="search"><input id="q" type="search" placeholder="Tìm tệp trong thư mục này" aria-label="Tìm tệp"></div>
+  <button class="up" id="upbtn">Tải lên</button>
+  <input type="file" id="upin" multiple hidden>
+</header>
+<main>
+  <nav class="crumbs" id="crumbs"></nav>
+  <div class="list" id="list"></div>
+</main>
+<div id="modal" role="dialog" aria-modal="true">
+  <div class="box">
+    <div class="bar"><span class="nm" id="mname"></span><button class="dl" id="mdl">Tải về</button><button class="x" id="mx" aria-label="Đóng">✕</button></div>
+    <div class="view" id="view"></div>
+  </div>
+</div>
+
+<div id="tk" role="dialog" aria-modal="true">
+  <div class="tkbox">
+    <h2>Nhập mã để tải lên</h2>
+    <p>Dán mã truy cập GitHub do chủ kho cung cấp. Mã chỉ được lưu trong trình duyệt này.</p>
+    <input id="tkin" type="password" placeholder="github_pat_…" autocomplete="off" aria-label="Mã truy cập">
+    <div class="tkbtn"><button class="x" id="tkno">Hủy</button><button class="dl" id="tkok">Tiếp tục</button></div>
+  </div>
+</div>
+<div id="toast" aria-live="polite"></div>
+
+<script>
+/* ====== CẤU HÌNH ======
+   Nếu đăng lên GitHub Pages (tên.github.io/ten-repo) thì để owner, repo trống: trang tự nhận.
+   folder: thư mục trong repo chứa file để chia sẻ. */
+const CONFIG = { title: "Kho tệp", owner: "", repo: "", branch: "", folder: "files" };
+
+const $ = id => document.getElementById(id);
+$("title").textContent = CONFIG.title; document.title = CONFIG.title;
+
+let owner = CONFIG.owner, repo = CONFIG.repo;
+if (!owner && location.hostname.endsWith(".github.io")) {
+  owner = location.hostname.split(".")[0];
+  repo = location.pathname.split("/")[1] || location.hostname;
+}
+
+const TYPES = {
+  image:["jpg","jpeg","png","gif","webp","svg","bmp","avif"],
+  video:["mp4","webm","mov","m4v","ogv"],
+  audio:["mp3","wav","ogg","m4a","flac","aac"],
+  pdf:["pdf"],
+  text:["txt","md","json","csv","log","js","ts","css","html","xml","yml","yaml","py","cpp","c","h","java","cs","sh","ini","sql"]
+};
+const MIME = {pdf:"application/pdf"};
+const ICON = {image:"🖼️",video:"🎬",audio:"🎵",pdf:"📕",text:"📄",other:"📦",dir:"📁"};
+const ext = n => (n.split(".").pop() || "").toLowerCase();
+const kind = n => Object.keys(TYPES).find(k => TYPES[k].includes(ext(n))) || "other";
+const fmt = b => b < 1024 ? b + " B" : b < 1048576 ? (b/1024).toFixed(1) + " KB" : b < 1073741824 ? (b/1048576).toFixed(1) + " MB" : (b/1073741824).toFixed(2) + " GB";
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let items = [];
+const sub = () => decodeURIComponent(location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
+
+async function load() {
+  const s = sub();
+  const path = [CONFIG.folder, s].filter(Boolean).join("/");
+  renderCrumbs(s);
+  $("q").value = "";
+  if (!owner || !repo) return msg("Chưa nhận ra kho GitHub", "Mở trang qua tên.github.io/ten-repo hoặc điền owner và repo trong phần CONFIG của file.");
+  $("list").innerHTML = '<div class="msg">Đang tải…</div>';
+  const key = "ls:" + path;
+  try {
+    let data = null;
+    try { data = JSON.parse(sessionStorage.getItem(key)); } catch (e) {}
+    if (!data) {
+      const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}` + (CONFIG.branch ? `?ref=${CONFIG.branch}` : "");
+      const r = await fetch(url);
+      if (r.status === 404) return msg("Không tìm thấy thư mục", `Tạo thư mục “${CONFIG.folder}” trong repo và đẩy file vào đó.`);
+      if (r.status === 403) return msg("GitHub tạm giới hạn lượt tải", "Đợi vài phút rồi tải lại trang.");
+      if (!r.ok) throw new Error(r.status);
+      data = await r.json();
+      try { sessionStorage.setItem(key, JSON.stringify(data)); } catch (e) {}
+    }
+    items = data.filter(f => f.name !== ".gitkeep" && f.name !== "index.html" || f.type === "dir")
+      .sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1) || a.name.localeCompare(b.name, "vi", {numeric:true}));
+    render();
+  } catch (e) { msg("Không tải được danh sách", "Kiểm tra mạng rồi tải lại trang."); }
+}
+
+function msg(t, d) { $("list").innerHTML = `<div class="msg"><b>${t}</b>${d}</div>`; }
+
+function renderCrumbs(s) {
+  const parts = s ? s.split("/") : [];
+  let acc = "", h = `<a href="#/">${esc(CONFIG.title)}</a>`;
+  parts.forEach(p => { acc += (acc ? "/" : "") + p; h += ` › <a href="#/${encodeURIComponent(acc).replace(/%2F/g,"/")}">${esc(p)}</a>`; });
+  $("crumbs").innerHTML = h;
+}
+
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  const rows = items.filter(f => f.name.toLowerCase().includes(q));
+  if (!rows.length) return msg(q ? "Không có tệp khớp" : "Thư mục trống", q ? "Thử từ khóa khác." : "Đẩy file lên repo để hiện ở đây.");
+  $("list").innerHTML = rows.map((f, i) => {
+    const dir = f.type === "dir", k = dir ? "dir" : kind(f.name);
+    return `<div class="item" tabindex="0" data-n="${esc(f.name)}"><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
+      (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="${esc(f.name)}">Tải về</button>`) + `</div>`;
+  }).join("");
+}
+
+$("list").addEventListener("click", e => {
+  const d = e.target.closest("[data-d]");
+  const el = e.target.closest(".item");
+  if (!el) return;
+  const f = items.find(x => x.name === el.dataset.n);
+  if (d) { e.stopPropagation(); return download(f, d); }
+  open(f);
+});
+$("list").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("item")) e.target.click(); });
+$("q").addEventListener("input", render);
+addEventListener("hashchange", load);
+
+async function download(f, btn) {
+  const old = btn ? btn.textContent : "";
+  if (btn) btn.textContent = "Đang tải…";
+  try {
+    const blob = await (await fetch(f.download_url)).blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob); a.download = f.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  } catch (e) { window.open(f.download_url, "_blank"); }
+  if (btn) btn.textContent = old;
+}
+
+let cur = null, blobUrl = null;
+async function open(f) {
+  if (f.type === "dir") { location.hash = "#/" + [sub(), f.name].filter(Boolean).map(encodeURIComponent).join("/"); return; }
+  cur = f; const k = kind(f.name), v = $("view");
+  $("mname").textContent = f.name; v.innerHTML = '<div class="msg">Đang mở…</div>';
+  $("modal").classList.add("on");
+  try {
+    if (k === "image") v.innerHTML = `<img src="${f.download_url}" alt="${esc(f.name)}">`;
+    else if (k === "video") v.innerHTML = `<video src="${f.download_url}" controls autoplay></video>`;
+    else if (k === "audio") v.innerHTML = `<audio src="${f.download_url}" controls autoplay></audio>`;
+    else if (k === "pdf") {
+      const b = await (await fetch(f.download_url)).blob();
+      blobUrl = URL.createObjectURL(new Blob([b], {type: MIME.pdf}));
+      v.innerHTML = `<iframe src="${blobUrl}" title="${esc(f.name)}"></iframe>`;
+    } else if (k === "text") {
+      if (f.size > 1048576) throw 0;
+      const t = await (await fetch(f.download_url)).text();
+      v.innerHTML = `<pre>${esc(t)}</pre>`;
+    } else v.innerHTML = '<div class="msg"><b>Không xem trước được loại tệp này</b>Bấm “Tải về” để lưu vào máy.</div>';
+  } catch (e) { v.innerHTML = '<div class="msg"><b>Không mở được tệp</b>Bấm “Tải về” để lưu vào máy.</div>'; }
+}
+function close() {
+  $("modal").classList.remove("on"); $("view").innerHTML = "";
+  if (blobUrl) { URL.revokeObjectURL(blobUrl); blobUrl = null; }
+}
+$("mx").onclick = close;
+$("mdl").onclick = e => cur && download(cur, e.target);
+$("modal").addEventListener("click", e => { if (e.target.id === "modal") close(); });
+addEventListener("keydown", e => { if (e.key === "Escape") close(); });
+
+/* ====== TẢI LÊN ====== */
+const MAX = 25 * 1048576;
+const getTok = () => { try { return localStorage.getItem("gh-token") || ""; } catch (e) { return ""; } };
+const setTok = t => { try { t ? localStorage.setItem("gh-token", t) : localStorage.removeItem("gh-token"); } catch (e) {} };
+function toast(t, keep) {
+  const d = document.createElement("div"); d.textContent = t; $("toast").appendChild(d);
+  if (!keep) setTimeout(() => d.remove(), 5000);
+  return d;
+}
+let pendingTok = null;
+function askToken() {
+  return new Promise(res => { pendingTok = res; $("tkin").value = ""; $("tk").classList.add("on"); $("tkin").focus(); });
+}
+function endAsk(v) { $("tk").classList.remove("on"); if (pendingTok) pendingTok(v); pendingTok = null; }
+$("tkok").onclick = () => endAsk($("tkin").value.trim());
+$("tkno").onclick = () => endAsk("");
+$("tkin").addEventListener("keydown", e => { if (e.key === "Enter") endAsk($("tkin").value.trim()); });
+
+const b64 = f => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(r.result.split(",")[1]); r.onerror = no; r.readAsDataURL(f); });
+const api = (path, method, body) => fetch(
+  `https://api.github.com/repos/${owner}/${repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}` + (CONFIG.branch && !body ? `?ref=${CONFIG.branch}` : ""),
+  { method: method || "GET", body, headers: { Authorization: "Bearer " + getTok(), Accept: "application/vnd.github+json" } });
+
+async function uploadFiles(files) {
+  files = [...files].filter(f => f.size > 0 || f.name);
+  if (!files.length) return;
+  if (!owner || !repo) return toast("Chưa nhận ra kho GitHub, hãy điền owner và repo trong CONFIG.");
+  if (!getTok()) { const t = await askToken(); if (!t) return; setTok(t); }
+  const dir = [CONFIG.folder, sub()].filter(Boolean).join("/");
+  let done = 0;
+  for (const f of files) {
+    if (f.size > MAX) { toast(`${f.name}: lớn hơn 25 MB nên không tải lên được`); continue; }
+    const t = toast(`Đang tải lên ${f.name}…`, true);
+    try {
+      let name = f.name, n = 0;
+      for (;;) { /* không ghi đè: nếu trùng tên thì thêm (1), (2)… */
+        const r = await api(dir + "/" + name);
+        if (r.status === 404) break;
+        if (!r.ok) throw r.status;
+        name = f.name.replace(/(\.[^.]*)?$/, ` (${++n})$1`);
+      }
+      const body = JSON.stringify({ message: "Tải lên " + name, content: await b64(f), ...(CONFIG.branch ? { branch: CONFIG.branch } : {}) });
+      const r = await api(dir + "/" + name, "PUT", body);
+      if (!r.ok) throw r.status;
+      t.textContent = `Đã tải lên ${name}`; setTimeout(() => t.remove(), 4000); done++;
+    } catch (e) {
+      if ([401, 403, 404].includes(e)) { setTok(""); t.textContent = "Mã không đúng hoặc không có quyền ghi vào kho này. Hãy bấm Tải lên và nhập lại mã."; break; }
+      t.textContent = `Không tải lên được ${f.name}`;
+    }
+  }
+  if (done) { try { sessionStorage.removeItem("ls:" + dir); } catch (e) {} load(); }
+}
+$("upbtn").onclick = () => $("upin").click();
+$("upin").onchange = e => { uploadFiles(e.target.files); e.target.value = ""; };
+let dragN = 0;
+addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.types].includes("Files")) { dragN++; document.body.classList.add("drag"); } });
+addEventListener("dragleave", () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove("drag"); } });
+addEventListener("dragover", e => e.preventDefault());
+addEventListener("drop", e => { e.preventDefault(); dragN = 0; document.body.classList.remove("drag"); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
+
+load();
+</script>
+</body>
+</html>
