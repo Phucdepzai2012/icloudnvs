@@ -70,6 +70,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 .ck{width:18px;height:18px;flex:none;accent-color:var(--ac);cursor:pointer}
 .item.sel{background:var(--ac2)}
 .selbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;color:var(--mu);font-size:14px;min-height:34px}
+.selbar[hidden]{display:none}
 .selbar label{display:flex;gap:8px;align-items:center;cursor:pointer}
 .selact{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 </style>
@@ -87,7 +88,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 </header>
 <main>
   <nav class="crumbs" id="crumbs"></nav>
-  <div class="selbar"><label><input type="checkbox" id="selall" class="ck" aria-label="Chọn tất cả"><span id="seltxt">Chọn tất cả</span></label><span class="selact" id="selact"></span></div>
+  <div class="selbar" id="selbar" hidden><label><input type="checkbox" id="selall" class="ck" aria-label="Chọn tất cả"><span id="seltxt">Chọn tất cả</span></label><span class="selact" id="selact"></span></div>
   <div class="list" id="list"></div>
   <div class="hint">Kéo thả tệp hoặc cả thư mục vào trang để tải lên. Mỗi tệp tối đa 20 MB.</div>
 </main>
@@ -191,7 +192,7 @@ function render() {
   if (!rows.length) return msg(q ? "Không có tệp khớp" : "Chưa có tệp nào", q ? "Thử từ khóa khác." : "Bấm Tải lên hoặc kéo thả tệp vào đây.");
   $("list").innerHTML = rows.map(f => {
     const dir = f.type === "dir", k = dir ? "dir" : kind(f.name);
-    return `<div class="item" tabindex="0" data-n="${esc(f.name)}" data-t="${f.type}"${S ? ' draggable="true"' : ""}><input type="checkbox" class="ck" aria-label="Chọn"${sel.has(f.name) ? " checked" : ""}><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
+    return `<div class="item" tabindex="0" data-n="${esc(f.name)}" data-t="${f.type}"${S ? ' draggable="true"' : ""}>${S ? `<input type="checkbox" class="ck" aria-label="Chọn"${sel.has(f.name) ? " checked" : ""}>` : ""}<span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
       (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="1">Tải về</button>`) +
       (S ? `<button class="dl" data-m="1">Chuyển</button><button class="dl del" data-x="1">Xóa</button>` : "") + `</div>`;
   }).join("");
@@ -402,7 +403,7 @@ addEventListener("drop", async e => {
 /* ====== QUẢN TRỊ: đăng nhập, xóa, tạo thư mục, chuyển tệp ====== */
 const KEY = CONFIG.anonKey, SB = CONFIG.supabaseUrl.replace(/\/$/, "");
 let S = null; try { S = JSON.parse(localStorage.getItem("kt-session")); } catch (e) {}
-function ui() { $("adm").textContent = S ? "Đăng xuất" : "Quản trị"; $("nf").hidden = !S; }
+function ui() { $("adm").textContent = S ? "Đăng xuất" : "Quản trị"; $("nf").hidden = !S; $("selbar").hidden = !S; }
 function saveS(v) { S = v; try { v ? localStorage.setItem("kt-session", JSON.stringify(v)) : localStorage.removeItem("kt-session"); } catch (e) {} ui(); }
 const hdr = () => S ? { apikey: KEY, Authorization: "Bearer " + S.access_token } : AUTH;
 async function authReq(body, grant) {
