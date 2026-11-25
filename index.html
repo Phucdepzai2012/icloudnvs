@@ -74,7 +74,12 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
    Điền 2 giá trị lấy từ Supabase (Project Settings → API):
    supabaseUrl: Project URL, ví dụ https://abcdxyz.supabase.co
    anonKey:     khóa "anon public" (khóa này được thiết kế để công khai, dán vào đây là an toàn) */
-const CONFIG = { title: "Kho tệp", supabaseUrl: "", anonKey: "", bucket: "files" };
+const CONFIG = {
+  title: "Kho tệp",
+  supabaseUrl: "https://jphqnomjdgwjcgzudgyf.supabase.co",
+  anonKey: "sb_publishable_L8g8niIjT5BDYe3akGZIOA_IJHoaw0Z",
+  bucket: "files"
+};
 
 const $ = id => document.getElementById(id);
 $("title").textContent = CONFIG.title; document.title = CONFIG.title;
@@ -95,7 +100,9 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":
 const enc = p => p.split("/").map(encodeURIComponent).join("/");
 
 const API = CONFIG.supabaseUrl.replace(/\/$/, "") + "/storage/v1/object";
-const AUTH = { apikey: CONFIG.anonKey, Authorization: "Bearer " + CONFIG.anonKey };
+const AUTH = CONFIG.anonKey.startsWith("eyJ")
+  ? { apikey: CONFIG.anonKey, Authorization: "Bearer " + CONFIG.anonKey }
+  : { apikey: CONFIG.anonKey }; /* khóa sb_publishable_… chỉ cần gửi qua apikey */
 const pubUrl = p => `${API}/public/${CONFIG.bucket}/${enc(p)}`;
 
 let items = [];
