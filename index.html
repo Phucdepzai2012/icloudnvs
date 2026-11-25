@@ -91,7 +91,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 </div>
 <div id="lg" class="ov" role="dialog" aria-modal="true"><div class="dbox">
   <h2>Đăng nhập quản trị</h2><p>Chỉ chủ kho mới xóa, chuyển tệp và tạo thư mục được.</p>
-  <input id="lgem" type="email" placeholder="Email" autocomplete="username" aria-label="Email">
+  <input id="lgem" type="text" placeholder="Tên đăng nhập (ví dụ Phuc)" autocomplete="username" autocapitalize="none" aria-label="Tên đăng nhập">
   <input id="lgpw" type="password" placeholder="Mật khẩu" autocomplete="current-password" aria-label="Mật khẩu">
   <div class="er" id="lger"></div>
   <div class="dbtn"><button class="x" id="lgno">Hủy</button><button class="dl" id="lgok">Đăng nhập</button></div>
@@ -370,7 +370,8 @@ $("lgno").onclick = () => $("lg").classList.remove("on");
 $("lgok").onclick = async () => {
   $("lger").textContent = "";
   try {
-    saveS(await authReq({ email: $("lgem").value.trim(), password: $("lgpw").value }, "password"));
+    const u = $("lgem").value.trim().toLowerCase();
+    saveS(await authReq({ email: u.includes("@") ? u : u + "@kho.local", password: $("lgpw").value }, "password"));
     $("lg").classList.remove("on"); $("lgpw").value = ""; load();
   } catch (e) { $("lger").textContent = e.message; }
 };
