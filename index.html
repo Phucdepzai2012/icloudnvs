@@ -67,6 +67,11 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 .dbtn .x{width:auto;border-radius:999px;padding:0 16px;font-size:14px}
 .mvb{display:block;width:100%;text-align:left;border:0;background:var(--bg);color:var(--tx);padding:11px 14px;margin-bottom:6px;border-radius:10px;font:inherit;cursor:pointer}
 .mvb:hover{background:var(--ac2)}
+.ck{width:18px;height:18px;flex:none;accent-color:var(--ac);cursor:pointer}
+.item.sel{background:var(--ac2)}
+.selbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;color:var(--mu);font-size:14px;min-height:34px}
+.selbar label{display:flex;gap:8px;align-items:center;cursor:pointer}
+.selact{display:flex;gap:6px;flex-wrap:wrap;margin-left:auto}
 </style>
 </head>
 <body>
@@ -82,6 +87,7 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 </header>
 <main>
   <nav class="crumbs" id="crumbs"></nav>
+  <div class="selbar"><label><input type="checkbox" id="selall" class="ck" aria-label="Chọn tất cả"><span id="seltxt">Chọn tất cả</span></label><span class="selact" id="selact"></span></div>
   <div class="list" id="list"></div>
   <div class="hint">Kéo thả tệp hoặc cả thư mục vào trang để tải lên. Mỗi tệp tối đa 20 MB.</div>
 </main>
@@ -142,6 +148,7 @@ const AUTH = CONFIG.anonKey.startsWith("eyJ")
 const pubUrl = p => `${API}/public/${CONFIG.bucket}/${enc(p)}`;
 
 let items = [];
+const sel = new Set();
 const sub = () => decodeURIComponent(location.hash.replace(/^#\/?/, "")).replace(/\/+$/, "");
 
 function toast(t, keep) {
@@ -149,11 +156,11 @@ function toast(t, keep) {
   if (!keep) setTimeout(() => d.remove(), 5000);
   return d;
 }
-function msg(t, d) { $("list").innerHTML = `<div class="msg"><b>${t}</b>${d}</div>`; }
+function msg(t, d) { $("list").innerHTML = `<div class="msg"><b>${t}</b>${d}</div>`; updateSel(); }
 
 async function load() {
   const s = sub();
-  renderCrumbs(s); $("q").value = "";
+  sel.clear(); renderCrumbs(s); $("q").value = "";
   if (!CONFIG.supabaseUrl || !CONFIG.anonKey) return msg("Chưa cấu hình", "Điền supabaseUrl và anonKey trong phần CONFIG ở đầu file index.html.");
   $("list").innerHTML = '<div class="msg">Đang tải…</div>';
   try {
@@ -163,7 +170,7 @@ async function load() {
       body: JSON.stringify({ prefix: s, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } })
     });
     if (!r.ok) throw 0;
-    items = (await r.json()).filter(f => f.name !== ".emptyFolderPlaceholder").map(f => {
+    items = (await r.json()).filter(f => f.name !== ".emptyFolderPlaceholder" && f.name !== ".keep").map(f => {
       const path = (s ? s + "/" : "") + f.name;
       return { name: f.name, type: f.id ? "file" : "dir", size: (f.metadata && f.metadata.size) || 0, download_url: pubUrl(path), path };
     }).sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1) || a.name.localeCompare(b.name, "vi", { numeric: true }));
@@ -184,18 +191,20 @@ function render() {
   if (!rows.length) return msg(q ? "Không có tệp khớp" : "Chưa có tệp nào", q ? "Thử từ khóa khác." : "Bấm Tải lên hoặc kéo thả tệp vào đây.");
   $("list").innerHTML = rows.map(f => {
     const dir = f.type === "dir", k = dir ? "dir" : kind(f.name);
-    return `<div class="item" tabindex="0" data-n="${esc(f.name)}" data-t="${f.type}"${S ? ' draggable="true"' : ""}><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
+    return `<div class="item" tabindex="0" data-n="${esc(f.name)}" data-t="${f.type}"${S ? ' draggable="true"' : ""}><input type="checkbox" class="ck" aria-label="Chọn"${sel.has(f.name) ? " checked" : ""}><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
       (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="1">Tải về</button>`) +
       (S ? `<button class="dl" data-m="1">Chuyển</button><button class="dl del" data-x="1">Xóa</button>` : "") + `</div>`;
   }).join("");
+  updateSel();
 }
 
 $("list").addEventListener("click", e => {
   const el = e.target.closest(".item"); if (!el) return;
   const f = items.find(x => x.name === el.dataset.n);
+  if (e.target.classList.contains("ck")) { e.target.checked ? sel.add(f.name) : sel.delete(f.name); return updateSel(); }
   if (e.target.closest("[data-d]")) { e.stopPropagation(); return download(f, e.target.closest("[data-d]")); }
-  if (e.target.closest("[data-x]")) return removeItem(f);
-  if (e.target.closest("[data-m]")) return showMove(f);
+  if (e.target.closest("[data-x]")) return removeMany([f]);
+  if (e.target.closest("[data-m]")) return showMove([f]);
   openFile(f);
 });
 $("list").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("item")) e.target.click(); });
@@ -408,7 +417,7 @@ async function ensure() {
     catch (e) { saveS(null); toast("Phiên quản trị đã hết hạn, hãy đăng nhập lại."); }
   }
 }
-const errMsg = async r => { const j = await r.json().catch(() => ({})); return `Lỗi ${r.status}: ${j.message || j.error || "không rõ nguyên nhân"}`; };
+const errMsg = async r => { const j = await r.json().catch(() => ({})); const c = j.statusCode && String(j.statusCode) !== String(r.status) ? `${r.status}/${j.statusCode}` : r.status; return `Lỗi ${c}: ${j.message || j.error || "không rõ nguyên nhân"}`; };
 const post = (url, body) => fetch(url, { method: "POST", headers: { ...hdr(), "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 $("adm").onclick = () => { if (S) { saveS(null); load(); } else { $("lg").classList.add("on"); $("lgem").focus(); } };
@@ -431,52 +440,70 @@ async function listAll(prefix) {
   return out;
 }
 
-async function removeItem(f) {
-  if (!confirm(f.type === "dir" ? `Xóa thư mục “${f.name}” và toàn bộ tệp bên trong?` : `Xóa tệp “${f.name}”?`)) return;
+async function removeMany(arr) {
+  const dirs = arr.filter(f => f.type === "dir").length;
+  const q = arr.length === 1
+    ? (dirs ? `Xóa thư mục “${arr[0].name}” và toàn bộ tệp bên trong?` : `Xóa tệp “${arr[0].name}”?`)
+    : `Xóa ${arr.length} mục đã chọn${dirs ? ` (gồm ${dirs} thư mục và toàn bộ tệp bên trong)` : ""}?`;
+  if (!confirm(q)) return;
   const t = toast("Đang xóa…", true);
   try {
     await ensure();
-    const paths = f.type === "dir" ? await listAll(f.path) : [f.path];
+    const paths = [];
+    for (const f of arr) { if (f.type === "dir") paths.push(...await listAll(f.path)); else paths.push(f.path); }
     let gone = 0;
     for (let i = 0; i < paths.length; i += 100) {
       const r = await fetch(`${API}/${CONFIG.bucket}`, { method: "DELETE", headers: { ...hdr(), "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: paths.slice(i, i + 100) }) });
       if (!r.ok) throw new Error(await errMsg(r));
       gone += (await r.json().catch(() => [])).length || 0;
     }
-    if (paths.length && !gone) throw new Error("Không có quyền xóa. Kiểm tra đã chạy SQL quyền quản trị và đăng nhập đúng email chưa.");
-    t.textContent = "Đã xóa"; setTimeout(() => t.remove(), 3000); load();
+    if (paths.length && !gone) throw new Error("Không có quyền xóa. Kiểm tra đã chạy SQL quyền quản trị và đăng nhập đúng tài khoản chưa.");
+    t.textContent = `Đã xóa ${arr.length} mục`; setTimeout(() => t.remove(), 3000); load();
   } catch (e) { t.textContent = e.message || "Không xóa được"; }
 }
 
-async function moveTo(f, destDir) {
-  const dest = (destDir ? destDir + "/" : "") + f.name;
-  if (dest === f.path) return;
-  if (f.type === "dir" && (destDir === f.path || destDir.startsWith(f.path + "/"))) return toast("Không thể chuyển thư mục vào chính nó");
-  const t = toast(`Đang chuyển ${f.name}…`, true);
+async function moveMany(arr, destDir) {
+  const t = toast(`Đang chuyển ${arr.length} mục…`, true), errs = [];
+  let ok = 0;
   try {
     await ensure();
-    const files = f.type === "dir" ? await listAll(f.path) : [f.path];
-    for (const p of files) {
-      const r = await post(`${API}/move`, { bucketId: CONFIG.bucket, sourceKey: p, destinationKey: dest + p.slice(f.path.length) });
-      if (!r.ok) throw new Error(await errMsg(r));
+    for (const f of arr) {
+      const dest = (destDir ? destDir + "/" : "") + f.name;
+      if (dest === f.path) continue;
+      if (f.type === "dir" && (destDir === f.path || destDir.startsWith(f.path + "/"))) { errs.push(`${f.name}: không thể chuyển thư mục vào chính nó`); continue; }
+      try {
+        const files = f.type === "dir" ? await listAll(f.path) : [f.path];
+        for (const p of files) {
+          const r = await post(`${API}/move`, { bucketId: CONFIG.bucket, sourceKey: p, destinationKey: dest + p.slice(f.path.length) });
+          if (!r.ok) throw new Error(await errMsg(r));
+        }
+        ok++;
+      } catch (e) { errs.push(`${f.name}: ${e.message}`); }
     }
-    t.textContent = `Đã chuyển ${f.name}`; setTimeout(() => t.remove(), 3000); load();
-  } catch (e) { t.textContent = e.message || "Không chuyển được"; }
+  } catch (e) { errs.push(e.message); }
+  t.textContent = ok ? `Đã chuyển ${ok} mục` : "Chưa chuyển được mục nào"; setTimeout(() => t.remove(), 4000);
+  if (errs.length) toast(errs[0], true);
+  load();
 }
 
-let mvF = null, mvD = [];
-function showMove(f) {
+let mvL = [], mvD = [];
+function showMove(arr) {
   mvD = [];
-  if (sub()) { mvD.push({ l: "🏠 Thư mục gốc", p: "" }); mvD.push({ l: "⬆ Thư mục trên", p: sub().split("/").slice(0, -1).join("/") }); }
-  items.filter(x => x.type === "dir" && x.path !== f.path).forEach(x => mvD.push({ l: "📁 " + x.name, p: x.path }));
+  if (sub()) {
+    mvD.push({ l: "🏠 Thư mục gốc", p: "" });
+    const up = sub().split("/").slice(0, -1).join("/");
+    if (up) mvD.push({ l: "⬆ Thư mục trên", p: up });
+  }
+  items.filter(x => x.type === "dir" && !arr.some(a => a.path === x.path)).forEach(x => mvD.push({ l: "📁 " + x.name, p: x.path }));
   if (!mvD.length) return toast("Chưa có thư mục nào để chuyển vào. Hãy tạo thư mục trước.");
-  mvF = f; $("mvt").textContent = `Chuyển “${f.name}” đến:`;
+  mvL = arr; $("mvt").textContent = arr.length === 1 ? `Chuyển “${arr[0].name}” đến:` : `Chuyển ${arr.length} mục đến:`;
   $("mvl").innerHTML = mvD.map((d, i) => `<button class="mvb" data-i="${i}">${esc(d.l)}</button>`).join("");
   $("mv").classList.add("on");
 }
-$("mvl").onclick = e => { const b = e.target.closest("[data-i]"); if (b) { $("mv").classList.remove("on"); moveTo(mvF, mvD[+b.dataset.i].p); } };
+$("mvl").onclick = e => { const b = e.target.closest("[data-i]"); if (b) { $("mv").classList.remove("on"); moveMany(mvL, mvD[+b.dataset.i].p); } };
 $("mvno").onclick = () => $("mv").classList.remove("on");
 
+/* Tạo thư mục: đặt một tệp nhỏ .keep để thư mục tồn tại (tệp này được ẩn khỏi danh sách) */
 $("nf").onclick = async () => {
   const raw = prompt("Tên thư mục mới (sẽ được đổi thành chữ không dấu):");
   const name = raw && clean(raw.trim());
@@ -484,32 +511,65 @@ $("nf").onclick = async () => {
   const t = toast("Đang tạo thư mục…", true);
   try {
     await ensure();
-    const path = (sub() ? sub() + "/" : "") + name + "/.emptyFolderPlaceholder";
-    const r = await fetch(`${API}/${CONFIG.bucket}/${enc(path)}`, { method: "POST", body: new Blob([" "]), headers: { ...hdr(), "Content-Type": "application/octet-stream", "x-upsert": "false" } });
-    if (!r.ok) { const j = await r.json().catch(() => ({})); if (!(j.error === "Duplicate" || String(j.statusCode) === "409")) throw new Error(await errMsg(r)); }
+    const path = (sub() ? sub() + "/" : "") + name + "/.keep";
+    const r = await fetch(`${API}/${CONFIG.bucket}/${enc(path)}`, { method: "POST", body: "keep", headers: { ...hdr(), "Content-Type": "text/plain", "x-upsert": "false" } });
+    if (!r.ok) {
+      const j = await r.clone().json().catch(() => ({}));
+      if (!(j.error === "Duplicate" || String(j.statusCode) === "409")) throw new Error(await errMsg(r));
+    }
     t.textContent = `Đã tạo thư mục ${name}`; setTimeout(() => t.remove(), 3000); load();
   } catch (e) { t.textContent = e.message || "Không tạo được thư mục"; }
 };
 
-/* Kéo tệp hoặc thư mục thả vào thư mục khác (hoặc vào thanh đường dẫn phía trên) */
-let dragF = null;
+/* Chọn nhiều */
+const visible = () => { const q = $("q").value.trim().toLowerCase(); return items.filter(f => f.name.toLowerCase().includes(q)); };
+function updateSel() {
+  document.querySelectorAll("#list .item").forEach(r => {
+    const on = sel.has(r.dataset.n); r.classList.toggle("sel", on);
+    const c = r.querySelector(".ck"); if (c) c.checked = on;
+  });
+  const n = sel.size, v = visible();
+  $("selall").checked = v.length > 0 && v.every(f => sel.has(f.name));
+  $("seltxt").textContent = n ? `Đã chọn ${n}` : "Chọn tất cả";
+  $("selact").innerHTML = n
+    ? '<button class="dl" data-a="dl">Tải về</button>' + (S ? '<button class="dl" data-a="mv">Chuyển</button><button class="dl del" data-a="rm">Xóa</button>' : "") + '<button class="dl" data-a="no">Bỏ chọn</button>'
+    : "";
+}
+$("selall").onchange = e => { visible().forEach(f => e.target.checked ? sel.add(f.name) : sel.delete(f.name)); updateSel(); };
+$("selact").onclick = async e => {
+  const b = e.target.closest("[data-a]"); if (!b) return;
+  const list = items.filter(f => sel.has(f.name)), a = b.dataset.a;
+  if (a === "no") { sel.clear(); updateSel(); }
+  else if (a === "rm") removeMany(list);
+  else if (a === "mv") showMove(list);
+  else if (a === "dl") {
+    const fs = list.filter(f => f.type !== "dir");
+    if (!fs.length) return toast("Chỉ tải được tệp, không tải được thư mục.");
+    if (fs.length > 1) toast("Trình duyệt có thể hỏi cho phép tải nhiều tệp, hãy bấm Cho phép.");
+    for (const f of fs) { await download(f); await new Promise(r => setTimeout(r, 600)); }
+  }
+};
+
+/* Kéo tệp hoặc thư mục (cả nhiều mục đã chọn) thả vào thư mục khác hoặc vào thanh đường dẫn phía trên */
+let dragF = null, dragSet = [];
 const clearOver = () => document.querySelectorAll(".over").forEach(x => x.classList.remove("over"));
 $("list").addEventListener("dragstart", e => {
   const el = e.target.closest(".item"); if (!el || !S) return;
   dragF = items.find(x => x.name === el.dataset.n);
+  dragSet = sel.has(dragF.name) ? items.filter(x => sel.has(x.name)) : [dragF];
   e.dataTransfer.setData("text/plain", dragF.name); e.dataTransfer.effectAllowed = "move";
 });
-$("list").addEventListener("dragend", () => { dragF = null; clearOver(); });
+$("list").addEventListener("dragend", () => { dragF = null; dragSet = []; clearOver(); });
 $("list").addEventListener("dragover", e => {
   const el = e.target.closest('.item[data-t="dir"]');
-  if (dragF && el && el.dataset.n !== dragF.name) { e.preventDefault(); clearOver(); el.classList.add("over"); }
+  if (dragF && el && !dragSet.some(x => x.name === el.dataset.n)) { e.preventDefault(); clearOver(); el.classList.add("over"); }
 });
 $("list").addEventListener("drop", e => {
   const el = e.target.closest('.item[data-t="dir"]');
-  if (dragF && el) { e.preventDefault(); clearOver(); const d = items.find(x => x.name === el.dataset.n); if (d && d.path !== dragF.path) moveTo(dragF, d.path); }
+  if (dragF && el) { e.preventDefault(); clearOver(); const d = items.find(x => x.name === el.dataset.n); if (d && !dragSet.some(x => x.path === d.path)) moveMany(dragSet, d.path); }
 });
 $("crumbs").addEventListener("dragover", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); a.classList.add("over"); } });
-$("crumbs").addEventListener("drop", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); moveTo(dragF, a.dataset.p); } });
+$("crumbs").addEventListener("drop", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); moveMany(dragSet, a.dataset.p); } });
 
 ui();
 
