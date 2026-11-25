@@ -52,12 +52,29 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 .view audio{width:min(480px,90%)}
 #toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;flex-direction:column;gap:6px;z-index:40;width:min(420px,92vw)}
 #toast div{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:9px 14px;font-size:13px;box-shadow:0 6px 24px rgba(0,0,0,.25)}
+.del{background:color-mix(in srgb,#e5484d 14%,transparent);color:#e5484d}
+.del:hover{background:#e5484d;color:#fff}
+.over{background:var(--ac2);outline:2px dashed var(--ac);outline-offset:-3px}
+.crumbs a.over{border-radius:6px}
+.ov{position:fixed;inset:0;background:rgba(5,10,16,.72);display:none;z-index:30;padding:3vh 3vw}
+.ov.on{display:flex}
+.dbox{margin:auto;background:var(--panel);border-radius:var(--r);padding:22px;max-width:420px;width:100%;max-height:90vh;overflow:auto}
+.dbox h2{margin:0 0 6px;font-size:17px}
+.dbox p{margin:0 0 12px;color:var(--mu);font-size:13px}
+.dbox input{width:100%;padding:10px 12px;margin-bottom:8px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit}
+.er{color:#e5484d;font-size:13px;min-height:18px}
+.dbtn{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.dbtn .x{width:auto;border-radius:999px;padding:0 16px;font-size:14px}
+.mvb{display:block;width:100%;text-align:left;border:0;background:var(--bg);color:var(--tx);padding:11px 14px;margin-bottom:6px;border-radius:10px;font:inherit;cursor:pointer}
+.mvb:hover{background:var(--ac2)}
 </style>
 </head>
 <body>
 <header>
   <h1><span>☁️</span><span id="title"></span></h1>
   <div class="search"><input id="q" type="search" placeholder="Tìm tệp trong thư mục này" aria-label="Tìm tệp"></div>
+  <button class="dl" id="nf" hidden>📁 Thư mục mới</button>
+  <button class="dl" id="adm">Quản trị</button>
   <button class="up" id="upbtn">Tải lên</button>
   <input type="file" id="upin" multiple hidden>
 </header>
@@ -72,6 +89,17 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
     <div class="view" id="view"></div>
   </div>
 </div>
+<div id="lg" class="ov" role="dialog" aria-modal="true"><div class="dbox">
+  <h2>Đăng nhập quản trị</h2><p>Chỉ chủ kho mới xóa, chuyển tệp và tạo thư mục được.</p>
+  <input id="lgem" type="email" placeholder="Email" autocomplete="username" aria-label="Email">
+  <input id="lgpw" type="password" placeholder="Mật khẩu" autocomplete="current-password" aria-label="Mật khẩu">
+  <div class="er" id="lger"></div>
+  <div class="dbtn"><button class="x" id="lgno">Hủy</button><button class="dl" id="lgok">Đăng nhập</button></div>
+</div></div>
+<div id="mv" class="ov" role="dialog" aria-modal="true"><div class="dbox">
+  <h2 id="mvt"></h2><div id="mvl"></div>
+  <div class="dbtn"><button class="x" id="mvno">Hủy</button></div>
+</div></div>
 <div id="toast" aria-live="polite"></div>
 
 <script>
@@ -127,14 +155,15 @@ async function load() {
   if (!CONFIG.supabaseUrl || !CONFIG.anonKey) return msg("Chưa cấu hình", "Điền supabaseUrl và anonKey trong phần CONFIG ở đầu file index.html.");
   $("list").innerHTML = '<div class="msg">Đang tải…</div>';
   try {
+    await ensure();
     const r = await fetch(`${API}/list/${CONFIG.bucket}`, {
-      method: "POST", headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST", headers: { ...hdr(), "Content-Type": "application/json" },
       body: JSON.stringify({ prefix: s, limit: 1000, offset: 0, sortBy: { column: "name", order: "asc" } })
     });
     if (!r.ok) throw 0;
     items = (await r.json()).filter(f => f.name !== ".emptyFolderPlaceholder").map(f => {
       const path = (s ? s + "/" : "") + f.name;
-      return { name: f.name, type: f.id ? "file" : "dir", size: (f.metadata && f.metadata.size) || 0, download_url: pubUrl(path) };
+      return { name: f.name, type: f.id ? "file" : "dir", size: (f.metadata && f.metadata.size) || 0, download_url: pubUrl(path), path };
     }).sort((a, b) => (a.type === "dir" ? 0 : 1) - (b.type === "dir" ? 0 : 1) || a.name.localeCompare(b.name, "vi", { numeric: true }));
     render();
   } catch (e) { msg("Không tải được danh sách", "Kiểm tra supabaseUrl, anonKey và đã chạy đoạn SQL cấp quyền chưa."); }
@@ -142,8 +171,8 @@ async function load() {
 
 function renderCrumbs(s) {
   const parts = s ? s.split("/") : [];
-  let acc = "", h = `<a href="#/">${esc(CONFIG.title)}</a>`;
-  parts.forEach(p => { acc += (acc ? "/" : "") + p; h += ` › <a href="#/${enc(acc)}">${esc(p)}</a>`; });
+  let acc = "", h = `<a href="#/" data-p="">${esc(CONFIG.title)}</a>`;
+  parts.forEach(p => { acc += (acc ? "/" : "") + p; h += ` › <a href="#/${enc(acc)}" data-p="${esc(acc)}">${esc(p)}</a>`; });
   $("crumbs").innerHTML = h;
 }
 
@@ -153,8 +182,9 @@ function render() {
   if (!rows.length) return msg(q ? "Không có tệp khớp" : "Chưa có tệp nào", q ? "Thử từ khóa khác." : "Bấm Tải lên hoặc kéo thả tệp vào đây.");
   $("list").innerHTML = rows.map(f => {
     const dir = f.type === "dir", k = dir ? "dir" : kind(f.name);
-    return `<div class="item" tabindex="0" data-n="${esc(f.name)}"><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
-      (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="1">Tải về</button>`) + `</div>`;
+    return `<div class="item" tabindex="0" data-n="${esc(f.name)}" data-t="${f.type}"${S ? ' draggable="true"' : ""}><span class="ic">${ICON[k]}</span><span class="nm">${esc(f.name)}</span>` +
+      (dir ? "" : `<span class="sz">${fmt(f.size)}</span><button class="dl" data-d="1">Tải về</button>`) +
+      (S ? `<button class="dl" data-m="1">Chuyển</button><button class="dl del" data-x="1">Xóa</button>` : "") + `</div>`;
   }).join("");
 }
 
@@ -162,6 +192,8 @@ $("list").addEventListener("click", e => {
   const el = e.target.closest(".item"); if (!el) return;
   const f = items.find(x => x.name === el.dataset.n);
   if (e.target.closest("[data-d]")) { e.stopPropagation(); return download(f, e.target.closest("[data-d]")); }
+  if (e.target.closest("[data-x]")) return removeItem(f);
+  if (e.target.closest("[data-m]")) return showMove(f);
   openFile(f);
 });
 $("list").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList.contains("item")) e.target.click(); });
@@ -274,6 +306,7 @@ async function uploadFiles(files) {
   files = [...files];
   if (!files.length) return;
   if (!CONFIG.supabaseUrl || !CONFIG.anonKey) return toast("Chưa cấu hình Supabase trong CONFIG.");
+  await ensure();
   let done = 0;
   for (const f of files) {
     if (f.size > MAX) { toast(`${f.name}: lớn hơn 20 MB nên không tải lên được`); continue; }
@@ -287,7 +320,7 @@ async function uploadFiles(files) {
         const path = (sub() ? sub() + "/" : "") + name;
         const r = await fetch(`${API}/${CONFIG.bucket}/${enc(path)}`, {
           method: "POST", body: f,
-          headers: { ...AUTH, "Content-Type": f.type || "application/octet-stream", "x-upsert": "false", "cache-control": "max-age=3600" }
+          headers: { ...hdr(), "Content-Type": f.type || "application/octet-stream", "x-upsert": "false", "cache-control": "max-age=3600" }
         });
         if (r.ok) break;
         const j = await r.json().catch(() => ({}));
@@ -310,6 +343,128 @@ addEventListener("dragenter", e => { if (e.dataTransfer && [...e.dataTransfer.ty
 addEventListener("dragleave", () => { if (--dragN <= 0) { dragN = 0; document.body.classList.remove("drag"); } });
 addEventListener("dragover", e => e.preventDefault());
 addEventListener("drop", e => { e.preventDefault(); dragN = 0; document.body.classList.remove("drag"); if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files); });
+
+/* ====== QUẢN TRỊ: đăng nhập, xóa, tạo thư mục, chuyển tệp ====== */
+const KEY = CONFIG.anonKey, SB = CONFIG.supabaseUrl.replace(/\/$/, "");
+let S = null; try { S = JSON.parse(localStorage.getItem("kt-session")); } catch (e) {}
+function ui() { $("adm").textContent = S ? "Đăng xuất" : "Quản trị"; $("nf").hidden = !S; }
+function saveS(v) { S = v; try { v ? localStorage.setItem("kt-session", JSON.stringify(v)) : localStorage.removeItem("kt-session"); } catch (e) {} ui(); }
+const hdr = () => S ? { apikey: KEY, Authorization: "Bearer " + S.access_token } : AUTH;
+async function authReq(body, grant) {
+  const r = await fetch(`${SB}/auth/v1/token?grant_type=${grant}`, { method: "POST", headers: { apikey: KEY, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.msg || j.error_description || j.message || "Đăng nhập không thành công");
+  return { access_token: j.access_token, refresh_token: j.refresh_token, expires_at: Math.floor(Date.now() / 1000) + j.expires_in, email: (j.user && j.user.email) || "" };
+}
+async function ensure() {
+  if (S && S.expires_at - 60 < Date.now() / 1000) {
+    try { saveS(await authReq({ refresh_token: S.refresh_token }, "refresh_token")); }
+    catch (e) { saveS(null); toast("Phiên quản trị đã hết hạn, hãy đăng nhập lại."); }
+  }
+}
+const errMsg = async r => { const j = await r.json().catch(() => ({})); return `Lỗi ${r.status}: ${j.message || j.error || "không rõ nguyên nhân"}`; };
+const post = (url, body) => fetch(url, { method: "POST", headers: { ...hdr(), "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+$("adm").onclick = () => { if (S) { saveS(null); load(); } else { $("lg").classList.add("on"); $("lgem").focus(); } };
+$("lgno").onclick = () => $("lg").classList.remove("on");
+$("lgok").onclick = async () => {
+  $("lger").textContent = "";
+  try {
+    saveS(await authReq({ email: $("lgem").value.trim(), password: $("lgpw").value }, "password"));
+    $("lg").classList.remove("on"); $("lgpw").value = ""; load();
+  } catch (e) { $("lger").textContent = e.message; }
+};
+$("lgpw").addEventListener("keydown", e => { if (e.key === "Enter") $("lgok").click(); });
+
+async function listAll(prefix) {
+  const r = await post(`${API}/list/${CONFIG.bucket}`, { prefix, limit: 1000, offset: 0 });
+  if (!r.ok) throw new Error(await errMsg(r));
+  const out = [];
+  for (const o of await r.json()) { const p = prefix + "/" + o.name; if (o.id) out.push(p); else out.push(...await listAll(p)); }
+  return out;
+}
+
+async function removeItem(f) {
+  if (!confirm(f.type === "dir" ? `Xóa thư mục “${f.name}” và toàn bộ tệp bên trong?` : `Xóa tệp “${f.name}”?`)) return;
+  const t = toast("Đang xóa…", true);
+  try {
+    await ensure();
+    const paths = f.type === "dir" ? await listAll(f.path) : [f.path];
+    let gone = 0;
+    for (let i = 0; i < paths.length; i += 100) {
+      const r = await fetch(`${API}/${CONFIG.bucket}`, { method: "DELETE", headers: { ...hdr(), "Content-Type": "application/json" }, body: JSON.stringify({ prefixes: paths.slice(i, i + 100) }) });
+      if (!r.ok) throw new Error(await errMsg(r));
+      gone += (await r.json().catch(() => [])).length || 0;
+    }
+    if (paths.length && !gone) throw new Error("Không có quyền xóa. Kiểm tra đã chạy SQL quyền quản trị và đăng nhập đúng email chưa.");
+    t.textContent = "Đã xóa"; setTimeout(() => t.remove(), 3000); load();
+  } catch (e) { t.textContent = e.message || "Không xóa được"; }
+}
+
+async function moveTo(f, destDir) {
+  const dest = (destDir ? destDir + "/" : "") + f.name;
+  if (dest === f.path) return;
+  if (f.type === "dir" && (destDir === f.path || destDir.startsWith(f.path + "/"))) return toast("Không thể chuyển thư mục vào chính nó");
+  const t = toast(`Đang chuyển ${f.name}…`, true);
+  try {
+    await ensure();
+    const files = f.type === "dir" ? await listAll(f.path) : [f.path];
+    for (const p of files) {
+      const r = await post(`${API}/move`, { bucketId: CONFIG.bucket, sourceKey: p, destinationKey: dest + p.slice(f.path.length) });
+      if (!r.ok) throw new Error(await errMsg(r));
+    }
+    t.textContent = `Đã chuyển ${f.name}`; setTimeout(() => t.remove(), 3000); load();
+  } catch (e) { t.textContent = e.message || "Không chuyển được"; }
+}
+
+let mvF = null, mvD = [];
+function showMove(f) {
+  mvD = [];
+  if (sub()) { mvD.push({ l: "🏠 Thư mục gốc", p: "" }); mvD.push({ l: "⬆ Thư mục trên", p: sub().split("/").slice(0, -1).join("/") }); }
+  items.filter(x => x.type === "dir" && x.path !== f.path).forEach(x => mvD.push({ l: "📁 " + x.name, p: x.path }));
+  if (!mvD.length) return toast("Chưa có thư mục nào để chuyển vào. Hãy tạo thư mục trước.");
+  mvF = f; $("mvt").textContent = `Chuyển “${f.name}” đến:`;
+  $("mvl").innerHTML = mvD.map((d, i) => `<button class="mvb" data-i="${i}">${esc(d.l)}</button>`).join("");
+  $("mv").classList.add("on");
+}
+$("mvl").onclick = e => { const b = e.target.closest("[data-i]"); if (b) { $("mv").classList.remove("on"); moveTo(mvF, mvD[+b.dataset.i].p); } };
+$("mvno").onclick = () => $("mv").classList.remove("on");
+
+$("nf").onclick = async () => {
+  const raw = prompt("Tên thư mục mới (sẽ được đổi thành chữ không dấu):");
+  const name = raw && clean(raw.trim());
+  if (!name) { if (raw) toast("Tên thư mục không hợp lệ"); return; }
+  const t = toast("Đang tạo thư mục…", true);
+  try {
+    await ensure();
+    const path = (sub() ? sub() + "/" : "") + name + "/.emptyFolderPlaceholder";
+    const r = await fetch(`${API}/${CONFIG.bucket}/${enc(path)}`, { method: "POST", body: new Blob([" "]), headers: { ...hdr(), "Content-Type": "application/octet-stream", "x-upsert": "false" } });
+    if (!r.ok) { const j = await r.json().catch(() => ({})); if (!(j.error === "Duplicate" || String(j.statusCode) === "409")) throw new Error(await errMsg(r)); }
+    t.textContent = `Đã tạo thư mục ${name}`; setTimeout(() => t.remove(), 3000); load();
+  } catch (e) { t.textContent = e.message || "Không tạo được thư mục"; }
+};
+
+/* Kéo tệp hoặc thư mục thả vào thư mục khác (hoặc vào thanh đường dẫn phía trên) */
+let dragF = null;
+const clearOver = () => document.querySelectorAll(".over").forEach(x => x.classList.remove("over"));
+$("list").addEventListener("dragstart", e => {
+  const el = e.target.closest(".item"); if (!el || !S) return;
+  dragF = items.find(x => x.name === el.dataset.n);
+  e.dataTransfer.setData("text/plain", dragF.name); e.dataTransfer.effectAllowed = "move";
+});
+$("list").addEventListener("dragend", () => { dragF = null; clearOver(); });
+$("list").addEventListener("dragover", e => {
+  const el = e.target.closest('.item[data-t="dir"]');
+  if (dragF && el && el.dataset.n !== dragF.name) { e.preventDefault(); clearOver(); el.classList.add("over"); }
+});
+$("list").addEventListener("drop", e => {
+  const el = e.target.closest('.item[data-t="dir"]');
+  if (dragF && el) { e.preventDefault(); clearOver(); const d = items.find(x => x.name === el.dataset.n); if (d && d.path !== dragF.path) moveTo(dragF, d.path); }
+});
+$("crumbs").addEventListener("dragover", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); a.classList.add("over"); } });
+$("crumbs").addEventListener("drop", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); moveTo(dragF, a.dataset.p); } });
+
+ui();
 
 load();
 </script>
