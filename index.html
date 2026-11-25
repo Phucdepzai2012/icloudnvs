@@ -87,6 +87,18 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
 .tout{flex:1;min-height:0;margin:0;overflow:auto;background:#0b0f14;color:#d6e2ee;border-radius:8px;padding:10px;white-space:pre-wrap;word-break:break-word}
 .tout .e{color:#ff7b72}.tout .o{color:#7ee787}.tout .m{color:#8da0b5}.tout .w{color:#e3b341}
 .ssel{padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);font:inherit}
+.tabs{display:flex;gap:4px;margin-top:2px}
+.tab{border:0;background:transparent;color:var(--mu);padding:6px 14px;border-radius:8px 8px 0 0;font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.tab.on{background:#0b0f14;color:#fff}
+.bpane{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
+.bpane[hidden],.tout[hidden]{display:none}
+.bmsg{max-height:42%;overflow:auto;background:var(--panel);border:1px solid var(--bd);border-radius:8px;flex:none}
+.bmsg:empty{display:none}
+.bmsg div{display:flex;gap:10px;padding:6px 10px;border-bottom:1px solid var(--bd);cursor:pointer;font-size:13px}
+.bmsg div:hover{background:var(--ac2)}
+.bmsg .ln{flex:none;width:46px;color:var(--mu)}
+.bmsg b.e{color:#e5484d;flex:none;width:56px}.bmsg b.w{color:#b7791f;flex:none;width:56px}.bmsg b.n{color:var(--mu);flex:none;width:56px}
+.ge{color:#ff7b72;font-weight:700}.gw{color:#e3b341;font-weight:700}
 </style>
 </head>
 <body>
@@ -129,7 +141,10 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
     <div class="bar">
       <span class="nm">💻 Chạy code C++</span>
       <select id="cstd" class="ssel" aria-label="Chuẩn C++"><option value="c++11">C++11</option><option value="c++14">C++14</option><option value="c++17" selected>C++17</option><option value="c++20">C++20</option></select>
-      <button class="up" id="trun">▶ Chạy</button>
+      <select id="ctgt" class="ssel" aria-label="Chế độ biên dịch"><option value="debug">Debug</option><option value="release">Release</option></select>
+      <button class="dl" id="tbuild" title="Build (Ctrl+F9)">⚙ Build</button>
+      <button class="dl" id="trun1" title="Run (Ctrl+F10)">▶ Run</button>
+      <button class="up" id="tbr" title="Build and run (F9)">⚙▶ Build &amp; Run</button>
       <button class="dl" id="topen">Mở tệp</button>
       <button class="dl" id="tsave">Tải code về</button>
       <button class="x" id="tx" aria-label="Đóng">✕</button>
@@ -138,10 +153,11 @@ body.drag main{outline:3px dashed var(--ac);outline-offset:-10px;border-radius:v
     <div class="tbody">
       <div class="ed"><pre id="gut" class="mono" aria-hidden="true">1</pre><textarea id="code" class="mono" spellcheck="false" wrap="off" autocapitalize="off" autocomplete="off" aria-label="Mã nguồn"></textarea></div>
       <div class="tside">
-        <label class="tlab" for="tin">Dữ liệu nhập vào (stdin): mỗi lần cin đọc theo thứ tự trong ô này</label>
+        <label class="tlab" for="tin">Dữ liệu nhập vào (stdin), điền trước khi chạy: mỗi lần cin/scanf đọc theo thứ tự trong ô này</label>
         <textarea id="tin" class="mono" spellcheck="false" placeholder="Ví dụ: 3 4"></textarea>
-        <div class="tlab">Kết quả (Ctrl+Enter để chạy)</div>
+        <div class="tabs"><button class="tab on" data-tab="con">Console</button><button class="tab" data-tab="bld">Build log</button><span class="tlab" style="margin-left:auto;align-self:center">F9 Build &amp; Run · Ctrl+F9 Build · Ctrl+F10 Run</span></div>
         <pre id="tout" class="tout mono"></pre>
+        <div id="bpane" class="bpane" hidden><pre id="blog" class="tout mono"></pre><div id="bmsg" class="bmsg"></div></div>
       </div>
     </div>
   </div>
@@ -612,8 +628,8 @@ $("list").addEventListener("drop", e => {
 $("crumbs").addEventListener("dragover", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); a.classList.add("over"); } });
 $("crumbs").addEventListener("drop", e => { const a = e.target.closest("a[data-p]"); if (dragF && a) { e.preventDefault(); clearOver(); moveMany(dragSet, a.dataset.p); } });
 
-/* ====== CHẠY CODE C++ (giống console của Code::Blocks) ======
-   Mã được gửi tới máy chủ biên dịch miễn phí (Wandbox, dự phòng Judge0) để biên dịch bằng g++ và chạy. */
+/* ====== CHẠY CODE C++ (kiểu Code::Blocks: Build, Run, Build & Run) ======
+   Mã được gửi tới máy chủ biên dịch miễn phí (Wandbox, dự phòng Judge0) để g++ biên dịch và chạy. */
 const SAMPLE = `#include <iostream>
 using namespace std;
 
@@ -625,28 +641,45 @@ int main() {
     return 0;
 }
 `;
-const code = $("code"), gut = $("gut"), tout = $("tout");
+const code = $("code"), gut = $("gut"), tout = $("tout"), blog = $("blog"), bmsg = $("bmsg");
+let marks = {}, built = null, running = false, warned = false;
 try { code.value = localStorage.getItem("kt-code") || SAMPLE; $("tin").value = localStorage.getItem("kt-in") || "3 4"; } catch (e) { code.value = SAMPLE; $("tin").value = "3 4"; }
 function gutter() {
   const n = code.value.split("\n").length; let h = "";
-  for (let i = 1; i <= n; i++) h += i + "\n";
-  gut.textContent = h; gut.scrollTop = code.scrollTop;
+  for (let i = 1; i <= n; i++) h += (marks[i] ? `<span class="g${marks[i]}">${i}</span>` : i) + "\n";
+  gut.innerHTML = h; gut.scrollTop = code.scrollTop;
 }
 const keep = () => { try { localStorage.setItem("kt-code", code.value); localStorage.setItem("kt-in", $("tin").value); } catch (e) {} };
-code.addEventListener("input", () => { gutter(); keep(); });
+code.addEventListener("input", () => { marks = {}; gutter(); keep(); });
 code.addEventListener("scroll", () => { gut.scrollTop = code.scrollTop; });
-$("tin").addEventListener("input", keep);
+$("tin").addEventListener("input", () => { warned = false; keep(); });
 function ins(t) { code.setRangeText(t, code.selectionStart, code.selectionEnd, "end"); code.dispatchEvent(new Event("input")); }
 code.addEventListener("keydown", e => {
-  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); runCode(); }
-  else if (e.key === "Tab") { e.preventDefault(); ins("    "); }
-  else if (e.key === "Enter") {
+  if (e.key === "Tab") { e.preventDefault(); ins("    "); }
+  else if (e.key === "Enter" && !(e.ctrlKey || e.metaKey)) {
     const v = code.value, st = code.selectionStart, ls = v.lastIndexOf("\n", st - 1) + 1, cut = v.slice(ls, st);
     e.preventDefault(); ins("\n" + cut.match(/^\s*/)[0] + (/\{\s*$/.test(cut) ? "    " : ""));
   }
 });
+function jump(n) {
+  const ls = code.value.split("\n"); let pos = 0;
+  for (let i = 0; i < n - 1 && i < ls.length; i++) pos += ls[i].length + 1;
+  code.focus(); code.setSelectionRange(pos, pos + (ls[n - 1] || "").length);
+  code.scrollTop = Math.max(0, (n - 4) * 20.15); gut.scrollTop = code.scrollTop;
+}
 
-const line = (t, c) => { const sp = document.createElement("span"); sp.className = c; sp.textContent = t.endsWith("\n") ? t : t + "\n"; tout.appendChild(sp); tout.scrollTop = tout.scrollHeight; };
+function showTab(t) {
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  tout.hidden = t !== "con"; $("bpane").hidden = t !== "bld";
+}
+document.querySelectorAll(".tab").forEach(b => { b.onclick = () => showTab(b.dataset.tab); });
+const put = (el, t, c) => { const sp = document.createElement("span"); sp.className = c; sp.textContent = t.endsWith("\n") ? t : t + "\n"; el.appendChild(sp); el.scrollTop = el.scrollHeight; };
+
+function parseMsgs(txt) {
+  const out = [], re = /^(.*?):(\d+):(?:(\d+):)?\s*(fatal error|error|warning|note):\s*(.*)$/;
+  for (const l of txt.split("\n")) { const m = l.match(re); if (m) out.push({ line: +m[2], type: m[4] === "fatal error" ? "error" : m[4], text: m[5] }); }
+  return out;
+}
 async function jpost(url, body, ms) {
   const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), ms || 30000);
   try {
@@ -655,56 +688,88 @@ async function jpost(url, body, ms) {
     return await r.json();
   } finally { clearTimeout(tm); }
 }
-async function viaWandbox(src, stdin, std) {
-  const j = await jpost("https://wandbox.org/api/compile.json", { compiler: "gcc-head", code: src, stdin, save: false, "compiler-option-raw": `-std=${std}\n-O2\n-Wall` });
-  const cmp = (j.compiler_error || "").trim(), out = j.program_output || "", err = j.program_error || "";
-  const failed = !out && !err && /error/i.test(cmp) && String(j.status) !== "0";
-  return { cmp, failed, out, err, status: j.signal ? `tín hiệu ${j.signal}` : `mã thoát ${j.status || 0}` };
+async function viaWandbox(src, stdin, flags, check) {
+  const j = await jpost("https://wandbox.org/api/compile.json", { compiler: "gcc-head", code: src, stdin: check ? "" : stdin, save: false, "compiler-option-raw": flags.concat(check ? ["-fsyntax-only"] : []).join("\n") });
+  return { cmp: (j.compiler_error || "").trim(), out: j.program_output || "", err: j.program_error || "", exit: Number(j.status || 0), sig: j.signal || "", time: null };
 }
-async function viaJudge0(src, stdin, std) {
-  const j = await jpost("https://ce.judge0.com/submissions?base64_encoded=false&wait=true",
-    { source_code: src, language_id: 54, stdin, compiler_options: `-std=${std.replace("c++20", "c++2a")} -O2 -Wall` });
+async function viaJudge0(src, stdin, flags, check) {
+  const fl = flags.map(f => f.replace("c++20", "c++2a")).concat(check ? ["-fsyntax-only"] : []).join(" ");
+  const j = await jpost("https://ce.judge0.com/submissions?base64_encoded=false&wait=true", { source_code: src, language_id: 54, stdin: check ? "" : stdin, compiler_options: fl });
   const id = j.status && j.status.id;
-  return { cmp: (j.compile_output || "").trim(), failed: id === 6, out: j.stdout || "", err: j.stderr || "",
-    status: id === 3 ? "mã thoát 0" : (j.status ? j.status.description : "không rõ") };
+  return { cmp: (j.compile_output || "").trim(), out: j.stdout || "", err: j.stderr || "", exit: id === 3 ? 0 : (j.exit_code != null ? j.exit_code : 1), sig: "", time: j.time ? +j.time : null, cerrHint: id === 6 };
 }
 
-let running = false;
-async function runCode() {
+async function go(mode) { /* "build" | "run" | "br" */
   if (running) return;
-  running = true; const b = $("trun"); b.textContent = "⏳ Đang chạy…"; b.disabled = true;
-  tout.textContent = ""; keep();
-  const src = code.value, std = $("cstd").value, stdin = $("tin").value, t0 = performance.now();
-  line(`$ g++ main.cpp -o main -std=${std} -O2 -Wall`, "m");
+  const src = code.value, std = $("cstd").value, tgt = $("ctgt").value;
+  const fresh = built && built.src === src && built.std === std && built.tgt === tgt;
+  if (mode === "run" && !fresh) mode = "br"; /* chưa build hoặc code đã đổi: build trước, giống Code::Blocks */
+  const stdin = $("tin").value;
+  if (mode !== "build" && !warned && !stdin.trim() && /\b(cin|scanf|getline|gets|getchar|fgets)\b/.test(src)) {
+    warned = true; showTab("con"); tout.textContent = "";
+    put(tout, "Chương trình có đọc dữ liệu (cin/scanf) nhưng ô “Dữ liệu nhập vào” đang trống.\nHãy gõ dữ liệu vào ô đó rồi chạy lại. Nếu thật sự không cần nhập, bấm chạy thêm lần nữa.", "w");
+    $("tin").focus(); return;
+  }
+  running = true; warned = false;
+  const btns = ["tbuild", "trun1", "tbr"].map($); btns.forEach(b => b.disabled = true);
+  const old = $("tbr").textContent; $("tbr").textContent = "⏳ Đang xử lý…";
+  const flags = ["-std=" + std, "-Wall"].concat(tgt === "debug" ? ["-g", "-O0"] : ["-O2"]);
+  const check = mode === "build", t0 = performance.now();
   let r = null, svc = "", errs = [];
   for (const [name, fn] of [["Wandbox", viaWandbox], ["Judge0", viaJudge0]]) {
-    try { r = await fn(src, stdin, std); svc = name; break; }
+    try { r = await fn(src, stdin, flags, check); svc = name; break; }
     catch (e) { errs.push(`${name}: ${e.name === "AbortError" ? "quá thời gian chờ" : e.message}`); }
   }
-  if (!r) { line("Không kết nối được máy chủ biên dịch. " + errs.join(" | "), "e"); line("Kiểm tra mạng rồi thử lại sau ít phút.", "m"); }
-  else {
-    if (r.cmp) line(r.cmp, r.failed ? "e" : "w");
-    if (r.failed) line("[Biên dịch thất bại]", "e");
+  const secs = (performance.now() - t0) / 1000;
+  if (!r) {
+    const m = "Không kết nối được máy chủ biên dịch. " + errs.join(" | ") + "\nKiểm tra mạng rồi thử lại sau ít phút.";
+    blog.textContent = ""; put(blog, m, "e"); tout.textContent = ""; put(tout, m, "e"); showTab(mode === "build" ? "bld" : "con");
+  } else {
+    const msgs = parseMsgs(r.cmp), ne = msgs.filter(m => m.type === "error").length, nw = msgs.filter(m => m.type === "warning").length;
+    const cerr = ne > 0 || r.cerrHint || /ld returned|collect2: error/.test(r.cmp);
+    if (mode !== "run" || cerr) { /* ghi Build log */
+      blog.textContent = "";
+      put(blog, `-------------- Build: ${tgt === "debug" ? "Debug" : "Release"} in main (compiler: GNU GCC, ${svc}) ---------------`, "m");
+      put(blog, `g++ ${flags.join(" ")} main.cpp -o main`, "m");
+      if (r.cmp) put(blog, r.cmp, cerr ? "e" : "w");
+      put(blog, `=== Build ${cerr ? "FAILED" : "finished"}: ${ne || (cerr ? 1 : 0)} error(s), ${nw} warning(s) (0 minute(s), ${Math.max(1, Math.round(secs))} second(s)) ===`, cerr ? "e" : "o");
+      bmsg.innerHTML = msgs.map(m => `<div data-l="${m.line}"><span class="ln">${m.line}</span><b class="${m.type === "error" ? "e" : m.type === "warning" ? "w" : "n"}">${m.type === "error" ? "lỗi" : m.type === "warning" ? "cảnh báo" : "ghi chú"}</b><span>${esc(m.text)}</span></div>`).join("");
+      marks = {}; msgs.forEach(m => { if (m.type === "error") marks[m.line] = "e"; else if (m.type === "warning" && !marks[m.line]) marks[m.line] = "w"; });
+      gutter();
+    }
+    built = cerr ? null : { src, std, tgt };
+    if (cerr) showTab("bld");
+    else if (mode === "build") showTab("bld");
     else {
-      line("$ ./main", "m");
-      if (r.out) line(r.out, "o");
-      if (r.err) line(r.err, "e");
-      line(`[Kết thúc: ${r.status} | ${((performance.now() - t0) / 1000).toFixed(2)}s | máy chủ ${svc}]`, "m");
+      showTab("con"); tout.textContent = "";
+      if (r.out) put(tout, r.out, "o");
+      if (r.err) put(tout, r.err, "e");
+      if (r.sig) put(tout, `\nProcess terminated with signal ${r.sig}`, "e");
+      const t = r.time != null ? r.time : secs;
+      put(tout, `\nProcess returned ${r.exit} (0x${(r.exit >>> 0).toString(16).toUpperCase()})   execution time : ${t.toFixed(3)} s\nPress any key to continue.`, "m");
     }
   }
-  running = false; b.textContent = "▶ Chạy"; b.disabled = false;
+  running = false; btns.forEach(b => b.disabled = false); $("tbr").textContent = old;
 }
+bmsg.onclick = e => { const d = e.target.closest("[data-l]"); if (d) jump(+d.dataset.l); };
+$("tbuild").onclick = () => go("build");
+$("trun1").onclick = () => go("run");
+$("tbr").onclick = () => go("br");
+$("term").addEventListener("keydown", e => {
+  if (e.key === "F9" && e.ctrlKey) { e.preventDefault(); go("build"); }
+  else if (e.key === "F10" && e.ctrlKey) { e.preventDefault(); go("run"); }
+  else if (e.key === "F9" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) { e.preventDefault(); go("br"); }
+});
 function openTerm() { $("term").classList.add("on"); gutter(); code.focus(); }
 $("tbtn").onclick = openTerm;
 $("tx").onclick = () => $("term").classList.remove("on");
-$("trun").onclick = runCode;
 $("topen").onclick = () => $("tfile").click();
-$("tfile").onchange = async e => { const f = e.target.files[0]; if (f) { code.value = await f.text(); gutter(); keep(); } e.target.value = ""; };
+$("tfile").onchange = async e => { const f = e.target.files[0]; if (f) { code.value = await f.text(); marks = {}; gutter(); keep(); } e.target.value = ""; };
 $("tsave").onclick = () => {
   const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([code.value], { type: "text/plain" })); a.download = "main.cpp";
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 };
-$("mrun").onclick = () => { code.value = curText; gutter(); keep(); closeModal(); openTerm(); };
+$("mrun").onclick = () => { code.value = curText; marks = {}; gutter(); keep(); closeModal(); openTerm(); };
 addEventListener("keydown", e => { if (e.key === "Escape" && $("term").classList.contains("on")) $("term").classList.remove("on"); });
 gutter();
 
